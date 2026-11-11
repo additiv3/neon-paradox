@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="NEON PARADOX – ein Zeitschleifen-Arena-Shooter. Jede Runde wird aufgezeichnet, deine Vergangenheit kämpft an deiner Seite.">
+  <meta name="theme-color" content="#05030d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Neon Paradox">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <title>NEON PARADOX</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-tl">
+      <div class="hud-label">PUNKTE</div>
+      <div id="h-score" class="hud-score">0</div>
+      <div id="h-mult" class="hud-mult">×1</div>
+      <div id="h-mode" class="hud-mode"></div>
+    </div>
+
+    <div class="hud-tc">
+      <div class="hud-loop-row">
+        <span id="h-loop" class="hud-loop">LOOP 1</span>
+        <span id="h-time" class="hud-time">22 s</span>
+      </div>
+      <div id="h-timer-wrap" class="timer"><div id="h-timer" class="timer-fill"></div></div>
+      <div id="h-echoes" class="hud-echoes"></div>
+      <div id="bossbar" class="hidden">
+        <div id="boss-name" class="boss-name">WÄCHTER</div>
+        <div class="boss-track"><div id="boss-fill" class="boss-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="hud-tr">
+      <div class="hud-label">HÜLLE</div>
+      <div id="h-hp" class="hp"></div>
+    </div>
+
+    <div class="hud-bc">
+      <div id="m-dash" class="meter dash">
+        <div class="meter-top"><span id="h-dash-label">DASH</span><kbd>LEERTASTE</kbd></div>
+        <div class="meter-bar"><div id="h-dash"></div></div>
+      </div>
+      <div id="m-xp" class="meter xp">
+        <div class="meter-top"><span id="h-xp-label">STUFE 1</span></div>
+        <div class="meter-bar"><div id="h-xp"></div></div>
+      </div>
+      <div id="m-nova" class="meter nova">
+        <div class="meter-top"><span>NOVA</span><kbd>E</kbd></div>
+        <div class="meter-bar"><div id="h-nova"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Touch-Steuerung (nur auf Handys und Tablets sichtbar) -->
+  <div id="touch-ui">
+    <div id="stick-l" class="stick"><i class="knob"></i></div>
+    <div id="stick-r" class="stick aim"><i class="knob"></i></div>
+    <button id="t-pause" class="tbtn pause" aria-label="Pause"><span>II</span></button>
+    <button id="t-nova" class="tbtn nova" aria-label="Nova"><span>NOVA</span></button>
+    <button id="t-dash" class="tbtn dash" aria-label="Dash"><span>DASH</span></button>
+  </div>
+
+  <div id="banner"></div>
+  <div id="toast"></div>
+
+  <!-- Titel -->
+  <section id="screen-title" class="screen show">
+    <div class="title-wrap">
+      <div class="kicker">ZEITSCHLEIFEN · ARENA · SHOOTER</div>
+      <h1 class="logo"><span class="l1">NEON</span><span class="l2" data-text="PARADOX">PARADOX</span></h1>
+      <p class="tagline">Jede Runde wird aufgezeichnet.<br><b>Deine Vergangenheit kämpft an deiner Seite.</b></p>
+      <div class="title-btns">
+        <button id="btn-start" class="btn big">SPIELEN</button>
+        <button id="btn-full" class="btn small">VOLLBILD</button>
+      </div>
+      <div class="controls mouse-only">
+        <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Bewegen</span></div>
+        <div><kbd>MAUS</kbd><span>Zielen · feuert automatisch</span></div>
+        <div><kbd>LEERTASTE</kbd><span>Dash (unverwundbar)</span></div>
+        <div><kbd>E</kbd><kbd>RECHTSKLICK</kbd><span>Nova</span></div>
+        <div><kbd>ESC</kbd><span>Pause</span></div>
+        <div><kbd>M</kbd><span>Ton</span></div>
+      </div>
+      <div class="controls touch-only">
+        <div><kbd>LINKER DAUMEN</kbd><span>Bewegen</span></div>
+        <div><kbd>AUTOMATISCH</kbd><span>Zielen und Feuern</span></div>
+        <div><kbd>RECHTER DAUMEN</kbd><span>Selbst zielen (optional)</span></div>
+        <div><kbd>DASH</kbd><kbd>NOVA</kbd><span>Tasten unten rechts</span></div>
+        <div><span>Am besten im Querformat spielen</span></div>
+      </div>
+      <div id="best" class="best"></div>
+    </div>
+  </section>
+
+  <!-- Zentrale: Modus wählen -->
+  <section id="screen-hub" class="screen menu">
+    <div class="hub">
+      <header class="hub-top">
+        <div class="rank">
+          <div id="rank-num" class="rank-badge">1</div>
+          <div class="rank-info">
+            <div id="rank-name" class="rank-name">RANG 1 · REKRUT</div>
+            <div class="rank-bar"><div id="rank-fill"></div></div>
+            <div class="rank-sub"><span id="rank-xp">0 / 250 XP</span><span id="rank-next"></span></div>
+          </div>
+        </div>
+        <div class="cores"><i class="core-ico"></i><b id="cores-n">0</b><span>KERNE</span></div>
+      </header>
+      <div class="hub-main">
+        <div id="mode-list" class="mode-list"></div>
+        <div id="mode-detail" class="mode-detail"></div>
+      </div>
+      <div id="hub-note" class="hub-note"></div>
+      <footer class="hub-foot">
+        <button id="btn-hangar" class="btn">HANGAR</button>
+        <button id="btn-workshop" class="btn">WERKSTATT</button>
+        <button id="btn-ach" class="btn">ERFOLGE</button>
+        <button id="btn-hub-back" class="btn ghost">ZURÜCK</button>
+      </footer>
+    </div>
+  </section>
+
+  <!-- Kampagne -->
+  <section id="screen-campaign" class="screen menu">
+    <div class="hub">
+      <header class="hub-top">
+        <h2 class="hub-title">KAMPAGNE</h2>
+        <div id="camp-stars" class="camp-stars">★ 0 / 45</div>
+      </header>
+      <div class="hub-main">
+        <div id="camp-grid" class="camp-grid"></div>
+        <div id="camp-detail" class="mode-detail"></div>
+      </div>
+      <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
+    </div>
+  </section>
+
+  <!-- Hangar -->
+  <section id="screen-hangar" class="screen menu">
+    <div class="hub">
+      <header class="hub-top">
+        <h2 class="hub-title">HANGAR</h2>
+        <div class="hub-hint">Jedes Schiff spielt sich anders. Neue Schiffe gibt es mit höherem Rang.</div>
+      </header>
+      <div id="hangar-grid" class="hangar-grid"></div>
+      <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
+    </div>
+  </section>
+
+  <!-- Werkstatt -->
+  <section id="screen-workshop" class="screen menu">
+    <div class="hub narrow">
+      <header class="hub-top">
+        <h2 class="hub-title">WERKSTATT</h2>
+        <div class="cores"><i class="core-ico"></i><b id="ws-cores">0</b><span>KERNE</span></div>
+      </header>
+      <div class="hub-hint left">Dauerhafte Verbesserungen für alle Modi. Kerne bekommst du für jeden Lauf, für Erfolge und für Kampagnen-Sterne.</div>
+      <div id="ws-list" class="ws-list"></div>
+      <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
+    </div>
+  </section>
+
+  <!-- Erfolge -->
+  <section id="screen-ach" class="screen menu">
+    <div class="hub">
+      <header class="hub-top">
+        <h2 class="hub-title">ERFOLGE</h2>
+        <div id="ach-count" class="camp-stars">0 / 20</div>
+      </header>
+      <div id="ach-stats" class="hub-hint left"></div>
+      <div id="ach-list" class="ach-list"></div>
+      <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
+    </div>
+  </section>
+
+  <!-- Aufwertung -->
+  <section id="screen-upgrade" class="screen">
+    <div class="up-wrap">
+      <div id="up-kicker" class="kicker"></div>
+      <h2>WÄHLE EINE AUFWERTUNG</h2>
+      <div id="up-left" class="up-left"></div>
+      <div id="cards" class="cards"></div>
+      <div class="up-foot">
+        <span class="up-hint mouse-only">Klick oder <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span>
+        <button id="btn-reroll" class="btn small">NEU WÜRFELN</button>
+        <span class="up-hint mouse-only"><kbd>R</kbd> würfelt neu</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pause -->
+  <section id="screen-pause" class="screen">
+    <div class="panel">
+      <h2>PAUSE</h2>
+      <div id="pause-mode" class="kicker"></div>
+      <div id="pause-build" class="build"></div>
+      <div class="col">
+        <button id="btn-resume" class="btn big">FORTSETZEN</button>
+        <button id="btn-restart" class="btn">NEUSTART</button>
+        <button id="btn-sound" class="btn">TON: AN</button>
+        <button id="btn-quit" class="btn">LAUF BEENDEN</button>
+      </div>
+      <div class="up-hint mouse-only"><kbd>F</kbd> schaltet Auto-Feuer um</div>
+    </div>
+  </section>
+
+  <!-- Ergebnis -->
+  <section id="screen-over" class="screen">
+    <div class="panel result">
+      <div id="over-kicker" class="kicker">ZEITLINIE KOLLABIERT</div>
+      <h2 id="over-title" class="over-title">GAME OVER</h2>
+      <div id="over-stars" class="over-stars hidden"></div>
+      <div id="over-record" class="record hidden">★ NEUER REKORD ★</div>
+      <div id="over-stats" class="stats"></div>
+      <div id="over-rewards" class="rewards"></div>
+      <div class="row">
+        <button id="btn-next" class="btn big hidden">NÄCHSTER SEKTOR</button>
+        <button id="btn-retry" class="btn big">NOCHMAL</button>
+        <button id="btn-menu" class="btn">MENÜ</button>
+      </div>
+      <div id="over-hint" class="up-hint"><kbd>ENTER</kbd> für einen neuen Versuch</div>
+    </div>
+  </section>
+
+  <section id="nogl" class="screen">
+    <div class="panel">
+      <h2>WebGL2 fehlt</h2>
+      <p class="tagline">Dein Browser unterstützt kein WebGL2. Bitte probiere es mit einer aktuellen Version von Chrome, Edge oder Firefox.</p>
+    </div>
+  </section>
+
+  <script src="js/util.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/grid.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/upgrades.js"></script>
+  <script src="js/meta.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/menus.js"></script>
+</body>
+</html>
