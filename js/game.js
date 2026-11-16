@@ -87,6 +87,7 @@ function loopDurFor(n) {
   if (G.demo) return 14;
   const r = G.run;
   if (r.mode === 'swarm') return 20;
+  if (r.mode === 'tutorial') return n === 1 ? 999 : 22;
   if (r.muts.shortloop) return n === 1 ? 12 : 15;
   if (r.mode === 'campaign') return n === 1 ? 20 : 25;
   return n === 1 ? 22 : 30;
@@ -95,7 +96,7 @@ function isBossLoop(n) {
   if (G.demo) return false;
   const r = G.run;
   if (r.mode === 'bossrush') return true;
-  if (r.mode === 'swarm') return false;
+  if (r.mode === 'swarm' || r.mode === 'tutorial') return false;
   if (r.mode === 'campaign') return !!r.level.boss && n === r.level.loops + 1;
   return n % 5 === 0;
 }
@@ -112,6 +113,7 @@ function effFor(n) {
   if (r.mode === 'campaign') return r.level.eff + (n - 1) * (r.level.step || 1);
   if (r.mode === 'swarm') return 1 + (n - 1) * 0.6;
   if (r.mode === 'bossrush') return 1 + n;
+  if (r.mode === 'tutorial') return 1;
   return n;
 }
 
@@ -133,12 +135,13 @@ function setLoopParams(n) {
   G.budget = budget;
   G.spawnRate = G.bossLoop ? (budget * (run.mode === 'bossrush' ? 0.1 : 0.18)) / 24.6 : budget / (firstLoop ? 16.6 : 24.6);
   G.pool = run.level && run.level.pool ? run.level.pool : null;
+  if (run.mode === 'tutorial') { G.pool = ['drifter', 'weaver']; if (n === 1) G.spawnRate = 0; }
 }
 
 function modeLine() {
   const r = G.run;
   let s = MODES[r.mode].name;
-  if (r.mode === 'campaign') s = 'SEKTOR ' + (r.levelIdx + 1) + ' · ' + r.level.name.toUpperCase();
+  if (r.mode === 'campaign') s = 'SEKTOR ' + secLabel(r.level) + ' · ' + r.level.name.toUpperCase();
   if (r.map !== 'grid') s += '  ·  ' + MAPS[r.map].name;
   const m = r.mutList.map((id) => MUTATORS[id].name.toUpperCase());
   return m.length ? s + '  ·  ' + m.join(' + ') : s;
@@ -147,13 +150,17 @@ function loopLabel() {
   const r = G.run, n = G.loop;
   if (r.mode === 'bossrush') return 'BOSS ' + Math.max(1, n);
   if (r.mode === 'swarm') return 'ZEITRISS ' + n;
-  if (r.mode === 'campaign') return G.bossLoop ? 'BOSSKAMPF' : r.level.kills ? 'JAGD · LOOP ' + n : 'LOOP ' + n + '/' + r.level.loops;
+  if (r.mode === 'tutorial') return 'TUTORIAL';
+  if (r.mode === 'campaign') return G.bossLoop ? 'BOSSKAMPF' : r.level.kills ? 'JAGD · LOOP ' + n : r.level.collect ? 'SAMMELN · LOOP ' + n : 'LOOP ' + n + '/' + r.level.loops;
   return (G.bossLoop ? 'BOSS · ' : '') + 'LOOP ' + n;
 }
 /** Zusatzzeile im HUD: Jagd-Fortschritt oder aktive Anomalie. */
 function anomLine() {
   const r = G.run;
   if (r.mode === 'campaign' && r.level.kills) return `ABSCHÜSSE ${Math.min(G.kills, r.level.kills)} / ${r.level.kills}`;
+  if (r.mode === 'campaign' && r.level.collect) return `SPLITTER ${Math.min(G.shardsGot, r.level.collect)} / ${r.level.collect}`;
+  if (G.core) return `KERN ${Math.max(0, Math.ceil(G.core.hp / G.core.max * 100))} %`;
+  if (G.zone) return 'DIE ZONE SCHRUMPFT · BLEIB IM KREIS';
   return G.anom ? 'ANOMALIE · ' + ANOMALIES[G.anom].name : '';
 }
 
@@ -193,7 +200,13 @@ function startGame(cfg) {
   p.hp = S.maxHp;
   p.shieldUp = S.shield > 0;
   G.nova = Math.min(1, 0.2 * metaLv('m_nova'));
-  G.rerolls = 1 + metaLv('m_reroll');
+  G.rerolls = 1 + metaLv('m_reroll') + (masteryLv(run.ship) >= 5 ? 1 : 0);
+  G.banishes = 1 + metaLv('m_banish');
+  G.multMark = 0; G.tutStep = 0; G.tutD0 = 0; G.tutMoved = 0; G.tutSpawnT = 0; G.coreHp = 0; G.failMsg = '';
+  if (metaLv('m_start') && run.mode !== 'campaign' && run.mode !== 'tutorial') {      // Forschung "Vorrat"
+    const c = UPGRADES.filter((u) => u.rarity === 0 && u.max < 99 && (!u.cond || u.cond()));
+    if (c.length) applyUpgrade(pick(c));
+  }
   for (const k in hudCache) delete hudCache[k];
   el.mode.textContent = modeLine();
   clearOverlays();
@@ -213,8 +226,11 @@ function startLoop(n) {
   G.spawnAcc = G.budget * 0.1; G.packT = 0.2;
   G.boss = null; G.bossSpawned = false; G.bossEndT = 0; G.bossHits = 0; G.goalDone = false;
   G.enemies.length = 0; G.bullets.length = 0; G.ebullets.length = 0; G.blasts.length = 0; G.pickups.length = 0; G.holes.length = 0;
+  G.mapT = 0;
   const sp = mapSpawn();
   p.x = sp[0]; p.y = sp[1]; p.vx = 0; p.vy = 0; p.invuln = 1.2; p.hurtT = 0; p.dashT = 0; p.fireCd = 0.5; p.trail.length = 0;
+  missionLoopStart(n);
+  tutShow();
   G.hazT = 5; G.stormT = 2.5;
   if (G.anom === 'supply') {
     for (let k = 0; k < 2; k++) {
@@ -245,8 +261,10 @@ function startLoop(n) {
   } else if (G.bossLoop) {
     banner('WARNUNG', bossName(G.bossLv) + ' NÄHERT SICH', 'warn');
     Sfx.bossWarn();
+  } else if (run.mode === 'tutorial') {
+    banner(n === 1 ? 'TUTORIAL' : 'LOOP 2', n === 1 ? 'LERNE DIE GRUNDLAGEN' : 'DEIN ECHO KÄMPFT JETZT AN DEINER SEITE · ÜBERLEBE 22 SEKUNDEN');
   } else if (run.mode === 'campaign') {
-    if (n === 1) banner(run.level.name.toUpperCase(), 'SEKTOR ' + (run.levelIdx + 1) + '  ·  ' + campaignGoal(run.level).toUpperCase());
+    if (n === 1) banner(run.level.name.toUpperCase(), 'SEKTOR ' + secLabel(run.level) + '  ·  ' + campaignGoal(run.level).toUpperCase());
     else banner('LOOP ' + n + '/' + run.level.loops, echoTxt);
   } else if (run.mode === 'swarm') {
     banner('SCHWARM', 'ÜBERLEBE, SO LANGE DU KANNST');
@@ -313,6 +331,11 @@ function afterLoopEnd() {
   if (G.demo) { demoUpgrade(); startLoop(G.loop + 1); return; }
   const run = G.run;
   if (run.mode === 'campaign' && (G.goalDone || G.loop >= campaignLoops(run.level))) { victory(); return; }
+  if (run.mode === 'tutorial') {
+    if (G.loop >= 2) { victory(); return; }
+    openUpgrades(1, 'TUTORIAL  ·  NACH JEDEM LOOP WÄHLST DU EINE AUFWERTUNG');
+    return;
+  }
   let picks = 1 + G.pendingPicks;
   G.pendingPicks = 0;
   if (G.bossLoop) { picks++; G.player.hp = Math.min(S.maxHp, G.player.hp + 1); G.bossBonus = true; }
@@ -333,21 +356,31 @@ function openUpgrades(n, kicker, resume) {
   rollCards();
 }
 
-function rollCards() {
-  G.cards = rollUpgrades(3, G.bossBonus);
+function rollCards(keep) {
+  const held = G.held >= 0 && G.cards ? G.cards[G.held] : null;
+  G.cards = rollUpgrades(3, G.bossBonus, held ? [held] : null);
+  if (held) G.cards.splice(G.held, 0, held), G.cards.length = Math.min(G.cards.length, 3);
+  else G.held = -1;
   G.bossBonus = false;
   if (!G.cards.length) { finishUpgrades(); return; }
-  upgradeLockT = performance.now() + 450;
+  renderCards(keep);
+}
+
+function renderCards(fast) {
+  upgradeLockT = performance.now() + (fast ? 150 : 450);
   el.upLeft.textContent = G.picksLeft > 1 ? `NOCH ${G.picksLeft} AUSWAHLEN` : '';
   el.btnReroll.classList.toggle('hidden', G.rerolls <= 0);
   el.btnReroll.textContent = `NEU WÜRFELN (${G.rerolls})`;
+  const tut = G.run.mode === 'tutorial';
   el.cards.innerHTML = G.cards.map((u, i) => {
     const lv = G.up[u.id] || 0, rar = RARITY[u.rarity];
-    const lvl = u.max >= 99 ? 'SOFORT' : `STUFE ${lv} → ${lv + 1}${lv + 1 >= u.max ? ' · MAX' : ''}`;
-    return `<button class="card ${rar.cls}" data-i="${i}" style="animation-delay:${i * 70}ms">` +
+    const lvl = u.rarity === 4 ? evoRecipe(u) : u.max >= 99 ? 'SOFORT' : `STUFE ${lv} → ${lv + 1}${lv + 1 >= u.max ? ' · MAX' : ''}`;
+    const acts = tut ? '' : `<span class="card-acts"><i class="c-hold${G.held === i ? ' on' : ''}" data-hold="${i}">${G.held === i ? 'GEHALTEN' : 'HALTEN'}</i>` +
+      (G.banishes > 0 ? `<i class="c-ban" data-ban="${i}">VERBANNEN (${G.banishes})</i>` : '') + '</span>';
+    return `<button class="card ${rar.cls}${G.held === i ? ' held' : ''}" data-i="${i}" style="animation-delay:${fast ? 0 : i * 70}ms">` +
       `<span class="card-key">${i + 1}</span><span class="card-icon">${upgradeIcon(u)}</span>` +
       `<span class="card-rarity">${rar.name}</span><span class="card-name">${u.name}</span>` +
-      `<span class="card-desc">${u.desc}</span><span class="card-lvl">${lvl}</span></button>`;
+      `<span class="card-desc">${u.desc}</span><span class="card-lvl">${lvl}</span>${acts}</button>`;
   }).join('');
 }
 
@@ -358,12 +391,34 @@ function rerollCards() {
   rollCards();
 }
 
+/** Karte für den Rest des Laufs verbannen und durch eine neue ersetzen. */
+function banishCard(i) {
+  if (G.state !== 'upgrade' || G.banishes <= 0 || performance.now() < upgradeLockT) return;
+  const u = G.cards[i];
+  if (!u) return;
+  G.banishes--;
+  G.banned[u.id] = 1;
+  if (G.held === i) G.held = -1;
+  const rep = rollUpgrades(1, false, G.cards)[0];
+  if (rep) G.cards[i] = rep; else G.cards.splice(i, 1);
+  Sfx.deny();
+  if (!G.cards.length) { finishUpgrades(); return; }
+  renderCards(true);
+}
+function holdCard(i) {
+  if (G.state !== 'upgrade' || !G.cards[i]) return;
+  G.held = G.held === i ? -1 : i;
+  Sfx.pick();
+  renderCards(true);
+}
+
 function pickCard(i) {
   if (G.state !== 'upgrade' || performance.now() < upgradeLockT) return;
   const u = G.cards && G.cards[i];
   if (!u) return;
   applyUpgrade(u);
   Sfx.pick();
+  G.held = -1;
   G.picksLeft--;
   if (G.picksLeft > 0) rollCards(); else finishUpgrades();
 }
@@ -429,9 +484,11 @@ function settleRun(won) {
     if (P.daily.key !== run.dailyKey) { P.daily.key = run.dailyKey; P.daily.best = 0; }
     if (score > P.daily.best) { P.daily.best = score; out.record = true; }
     if (G.loop >= 5) award('daily5');
+  } else if (run.mode === 'tutorial') {
+    if (won) { P.tutDone = true; award('tut'); }
   } else if (run.mode === 'campaign' && won) {
-    const stars = G.hitsTaken === 0 ? 3 : G.hitsTaken <= 2 ? 2 : 1, old = P.campaign[run.level.id] || 0;
-    out.stars = stars; out.newStars = Math.max(0, stars - old);
+    const stars = campaignStars(), old = P.campaign[run.level.id] || 0;
+    out.stars = stars; out.newStars = Math.max(0, stars - old); out.goal3 = starGoalMet(starGoal(run.level));
     if (!old) out.campUnlocks = UNLOCKS.filter((u) => u.camp === run.level.id);
     if (stars > old) P.campaign[run.level.id] = stars;
     if (run.level.id === 'c6') award('pacifist');
@@ -440,16 +497,23 @@ function settleRun(won) {
     if (P.campaign.c15) award('act3');
     if (P.campaign.c20) award('act4');
     if (P.campaign.c25) award('act5');
+    if (P.campaign.c30) award('act6');
     if (totalStars() >= 30) award('stars30');
     if (totalStars() >= 60) award('stars60');
+    if (totalStars() >= 90) award('stars90');
+    if (CAMPAIGN.filter((l) => l.bonus).every((l) => P.campaign[l.id])) award('bonus');
   }
   if (score <= 0) out.record = out.record && run.mode !== 'paradox' && run.mode !== 'daily';
   if (P.stats.kills >= 1000) award('kills1k');
   if (P.stats.kills >= 10000) award('kills10k');
 
   out.xp = Math.round(G.loopsDone * 40 + G.kills * 0.8 + G.bossKills * 150 + out.newStars * 80 + (won ? 60 : 0));
-  out.cores = Math.round((G.loopsDone * 3 + G.bossKills * 12 + G.kills / 40 + out.newStars * 6) * (1 + 0.1 * metaLv('m_core')));
+  out.cores = Math.round((G.loopsDone * 3 + G.bossKills * 12 + G.kills / 40 + out.newStars * 6 + G.champKills * 4 * (1 + 0.5 * metaLv('m_champ'))) * (1 + 0.1 * metaLv('m_core')));
   P.xp += out.xp; P.cores += out.cores;
+  const mlv = masteryLv(run.ship);
+  P.mastery[run.ship] = (P.mastery[run.ship] || 0) + out.xp;
+  out.mastery = { ship: run.ship, before: mlv, after: masteryLv(run.ship) };
+  if (out.mastery.after >= 5) award('mastery');
   out.after = rankInfo(P.xp);
   out.unlocks = UNLOCKS.filter((u) => u.rank && u.rank > out.before.rank && u.rank <= out.after.rank).concat(out.campUnlocks || []);
   out.ach = G.newAch.slice();
@@ -462,8 +526,9 @@ function showResult(won) {
   G.state = 'gameover'; G.victory = !!won;
   const out = settleRun(won), run = G.run, camp = run.mode === 'campaign';
 
-  let kicker = 'ZEITLINIE KOLLABIERT', title = 'GAME OVER';
-  if (camp) { kicker = 'SEKTOR ' + (run.levelIdx + 1) + '  ·  ' + run.level.name.toUpperCase(); title = won ? 'ABGESCHLOSSEN' : 'GESCHEITERT'; }
+  let kicker = G.failMsg || 'ZEITLINIE KOLLABIERT', title = 'GAME OVER';
+  if (camp) { kicker = (G.failMsg ? G.failMsg + '  ·  ' : '') + 'SEKTOR ' + secLabel(run.level) + '  ·  ' + run.level.name.toUpperCase(); title = won ? 'ABGESCHLOSSEN' : 'GESCHEITERT'; }
+  else if (run.mode === 'tutorial') { kicker = 'TUTORIAL'; title = won ? 'GESCHAFFT' : 'NOCHMAL?'; }
   else if (run.mode === 'swarm') kicker = 'DER SCHWARM HAT DICH EINGEHOLT';
   else if (run.mode === 'bossrush') kicker = 'BOSS-RUSH BEENDET';
   else if (run.mode === 'daily') kicker = 'TAGES-PARADOX  ·  ' + run.dailyKey;
@@ -473,8 +538,10 @@ function showResult(won) {
 
   el.overStars.classList.toggle('hidden', !(camp && won));
   if (camp && won) {
+    const g = starGoal(run.level);
     el.overStars.innerHTML = `<div class="stars big">${starText(out.stars)}</div>` +
-      `<div class="star-hint">${G.hitsTaken === 0 ? 'Ohne einen einzigen Treffer!' : 'Treffer kassiert: ' + G.hitsTaken}  ·  ★★ höchstens 2 Treffer  ·  ★★★ kein Treffer</div>`;
+      `<div class="star-hint"><span class="${G.hitsTaken <= 2 ? 'ok' : 'no'}">${G.hitsTaken <= 2 ? '✓' : '✗'} höchstens 2 Treffer (${G.hitsTaken})</span>` +
+      `<span class="${out.goal3 ? 'ok' : 'no'}">${out.goal3 ? '✓' : '✗'} ${starGoalText(g)}</span></div>`;
   }
   el.overRecord.classList.toggle('hidden', !out.record);
 
@@ -493,9 +560,14 @@ function showResult(won) {
     `<div class="rank-bar"><div style="transform:scaleX(${(a.cur / a.need).toFixed(3)})"></div></div><span>${fmt(a.cur)} / ${fmt(a.need)} XP</span></div>`;
   if (out.unlocks.length) rw += '<div class="rw-list">' + out.unlocks.map((u) => `<span class="rw-unlock">NEU  ·  ${u.label}</span>`).join('') + '</div>';
   if (out.ach.length) rw += '<div class="rw-list">' + out.ach.map((id) => `<span class="rw-ach">${ACH_BY_ID[id].name} <b>+${ACH_BY_ID[id].cores}</b></span>`).join('') + '</div>';
+  const ms = out.mastery;
+  if (ms && ms.after > ms.before) {
+    const got = masteryRewards(ms.ship).filter(([l]) => l > ms.before && l <= ms.after).map(([, t]) => t);
+    rw += `<div class="rw-list"><span class="rw-unlock">${SHIPS[ms.ship].name} · MEISTERSCHAFT ${ms.after}${got.length ? '  ·  ' + got.join(', ') : ''}</span></div>`;
+  }
   el.overRewards.innerHTML = rw;
 
-  const next = camp && won && run.levelIdx + 1 < CAMPAIGN.length;
+  const next = camp && won && nextSector(run.levelIdx) >= 0;
   el.btnNext.classList.toggle('hidden', !next);
   el.btnRetry.classList.toggle('big', !next);
   el.overHint.innerHTML = `<kbd>ENTER</kbd> ${next ? 'für den nächsten Sektor' : 'für einen neuen Versuch'}`;
@@ -507,7 +579,8 @@ function showResult(won) {
 
 function resultPrimary() {
   const run = G.run;
-  if (run.mode === 'campaign' && G.victory && run.levelIdx + 1 < CAMPAIGN.length) startGame({ mode: 'campaign', level: run.levelIdx + 1 });
+  if (run.mode === 'campaign' && G.victory && nextSector(run.levelIdx) >= 0) startGame({ mode: 'campaign', level: nextSector(run.levelIdx) });
+  else if (run.mode === 'tutorial' && G.victory) { menu.mode = 'paradox'; openHub(); }
   else startGame(G.lastCfg);
 }
 
@@ -630,7 +703,8 @@ function update(rdt) {
   if (st === 'playing') {
     const swarm = G.run.mode === 'swarm';
     Input.analog = G.bot || !!G.touch;
-    if (G.bot) botThink(dt); else if (G.touch) touchThink(dt); else aimFromMouse();
+    if (G.bot) { botThink(dt); zoneBot(); } else if (G.touch) touchThink(dt); else aimFromMouse();
+    updateMovingObs(dt);
     updatePlayer(dt);
     recordSample();
     updateEchoes(dt);
@@ -641,6 +715,7 @@ function update(rdt) {
     updateBlasts(dt);
     updateHoles(dt);
     updateMapFx(dt);
+    updateExtras(dt);
     updatePickups(dt, false);
     G.loopT += dt; G.runT += dt;
     const lv = G.run.level;
@@ -754,6 +829,7 @@ function render() {
   Grid.draw(beat);
   drawArena(beat);
   drawMap(beat);
+  drawExtras();
   drawPickups();
   drawEnemies(R.cam.x - hw, R.cam.y - hh, R.cam.x + hw, R.cam.y + hh);
   drawBullets();
@@ -782,6 +858,7 @@ function render() {
     post.wave[3] = w.s * (1 - w.t / 0.8);
   } else post.wave[3] = 0;
   post.camOff[0] = R.cam.x * 0.0004; post.camOff[1] = -R.cam.y * 0.0004;
+  a11yPost(post);
   R.end(post);
 }
 
@@ -795,8 +872,9 @@ function updateHud() {
   setTxt(el.anom, 'anom', al);
   toggleCls(el.anom, 'hidden', !al, 'anomH');
   const rem = Math.max(0, G.loopDur - G.loopT);
-  el.timer.style.transform = `scaleX(${(G.bossLoop ? 1 : clamp(rem / G.loopDur, 0, 1)).toFixed(4)})`;
-  setTxt(el.time, 'time', swarm ? mmss(G.runT) : G.bossLoop ? '∞' : Math.ceil(rem) + ' s');
+  const endless = G.bossLoop || G.loopDur > 900;
+  el.timer.style.transform = `scaleX(${(endless ? 1 : clamp(rem / G.loopDur, 0, 1)).toFixed(4)})`;
+  setTxt(el.time, 'time', swarm ? mmss(G.runT) : endless ? '∞' : Math.ceil(rem) + ' s');
   toggleCls(el.timerWrap, 'ending', !swarm && !G.bossLoop && rem <= 3 && G.state === 'playing', 'ending');
 
   const hpKey = p.hp + '/' + S.maxHp + (S.shield > 0 ? (p.shieldUp ? 's' : 'x') : '');
@@ -1029,6 +1107,9 @@ function bindInput() {
   el.btnSound.addEventListener('click', toggleMute);
   el.btnReroll.addEventListener('click', rerollCards);
   el.cards.addEventListener('click', (ev) => {
+    const ban = ev.target.closest('[data-ban]'), hold = ev.target.closest('[data-hold]');
+    if (ban) { banishCard(+ban.dataset.ban); return; }
+    if (hold) { holdCard(+hold.dataset.hold); return; }
     const card = ev.target.closest('.card');
     if (card) pickCard(+card.dataset.i);
   });
@@ -1082,7 +1163,10 @@ function init() {
     step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) update(dt); render(); updateHud(); },
     startGame, startDemo, startLoop, endLoop, pickCard, togglePause, spawnEnemy, spawnBoss, applyUpgrade,
     settleRun, showResult, openHub, saveProfile, openSettings, openLayout, setMap, MAPS,
+    simSector, spawnChampion, banishCard, holdCard, EVOS, callout, showNews,
+    setLock(v) { upgradeLockT = v; },
   };
+  bindExtras();
 
   // Offline-Unterstützung nur auf der veröffentlichten Seite (nicht beim lokalen Entwickeln)
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

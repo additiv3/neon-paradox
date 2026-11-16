@@ -5,6 +5,7 @@ const RARITY = [
   { name: 'SELTEN', cls: 'r1', weight: 44 },
   { name: 'EPISCH', cls: 'r2', weight: 12 },
   { name: 'LEGENDÄR', cls: 'r3', weight: 3 },
+  { name: 'EVOLUTION', cls: 'r4', weight: 0 },
 ];
 const noPacifist = () => !G.run.muts.pacifist;
 /** Legendäres gibt es erst ab Loop 4, im Boss-Rush sofort, im Schwarm ab Stufe 6. */
@@ -97,8 +98,51 @@ const UPGRADES = [
     icon: 'M6 4 L10 12 L6 20 M18 4 L14 12 L18 20 M12 2 V22', cond: () => legendOK() && noPacifist() },
 ];
 
+/** Evolutionen: zwei passende Aufwertungen verschmelzen zu einer stärkeren Karte.
+    need = { id: Mindeststufe, ... } – erscheinen als eigene Karte, sobald alles erfüllt ist. */
+const EVOS = [
+  { id: 'e_storm', rarity: 4, max: 1, need: { chain: 2, crit: 2 }, name: 'Gewitterkern',
+    desc: 'Jeder kritische Treffer entlädt einen Kettenblitz (+2 Sprünge). Blitze richten 50 % mehr Schaden an.',
+    icon: 'M13 2 L5 13 H11 L9 22 L19 10 H13 Z M2 6 L5 9 M22 16 L19 13' },
+  { id: 'e_implode', rarity: 4, max: 1, need: { mine: 2, hole: 1 }, name: 'Implosionsminen',
+    desc: 'Deine Zeitminen werden zu kleinen Schwarzen Löchern, die Gegner einsaugen, bevor sie zünden.',
+    icon: 'M12 9 A3 3 0 1 0 12 15 A3 3 0 1 0 12 9 M12 2 V5 M12 19 V22 M2 12 H5 M19 12 H22 M5 5 L7 7 M19 19 L17 17' },
+  { id: 'e_frost', rarity: 4, max: 1, need: { cryo: 2, explode: 1 }, name: 'Frostbruch',
+    desc: 'Unterkühlte Gegner nehmen 50 % mehr Schaden und zerspringen beim Tod in sechs Eissplitter.',
+    icon: 'M12 2 V22 M3 7 L21 17 M3 17 L21 7 M8 12 L12 8 L16 12 L12 16 Z' },
+  { id: 'e_army', rarity: 4, max: 1, need: { echopow: 3, echocap: 2 }, name: 'Echo-Armee',
+    desc: 'Deine Echos richten 60 % mehr Schaden an und ihre Geschosse suchen sich selbst ihr Ziel.',
+    icon: 'M2 19 L6 9 L10 19 M8 19 L12 5 L16 19 M14 19 L18 9 L22 19 M4 22 H20' },
+  { id: 'e_phoenix', rarity: 4, max: 1, need: { shield: 2, regen: 1 }, name: 'Phönix-Hülle',
+    desc: 'Der Phasenschild lädt doppelt so schnell. Bricht er, zündet eine Nova um dein Schiff.',
+    icon: 'M12 2 L20 5 V12 C20 17 16 20 12 22 C8 20 4 17 4 12 V5 Z M12 7 C14 10 15 12 12 17 C9 12 10 10 12 7' },
+  { id: 'e_rail', rarity: 4, max: 1, need: { pierce: 3, bspeed: 2 }, name: 'Railgun',
+    desc: 'Projektile durchschlagen +3 Gegner, fliegen 30 % schneller und richten 40 % mehr Schaden an.',
+    icon: 'M2 12 H22 M2 8 H14 M2 16 H14 M18 7 L22 12 L18 17' },
+  { id: 'e_super', rarity: 4, max: 1, need: { novapow: 2, novacharge: 2 }, name: 'Supernova',
+    desc: 'Nach jeder Nova folgen drei Nachbeben. 30 % der Ladung bleiben erhalten.',
+    icon: 'M12 3 A9 9 0 1 0 12 21 A9 9 0 1 0 12 3 M12 7 A5 5 0 1 0 12 17 A5 5 0 1 0 12 7 M12 11 A1 1 0 1 0 12 13 A1 1 0 1 0 12 11' },
+  { id: 'e_blades', rarity: 4, max: 1, need: { orbit: 2, ghostblade: 1 }, name: 'Klingensturm',
+    desc: '+3 Orbitalklingen mit doppeltem Schaden, die in weitem Bogen pulsieren.',
+    icon: 'M12 10 A2 2 0 1 0 12 14 A2 2 0 1 0 12 10 M12 2 L14 6 L12 8 L10 6 Z M12 22 L10 18 L12 16 L14 18 Z M2 12 L6 10 L8 12 L6 14 Z M22 12 L18 14 L16 12 L18 10 Z' },
+  { id: 'e_overdrive', rarity: 4, max: 1, need: { rate: 4, dashcd: 2 }, name: 'Overdrive',
+    desc: 'Nach jedem Dash feuerst du 2,5 s lang 80 % schneller und jeder Treffer ist kritisch.',
+    icon: 'M3 12 H9 M5 7 L10 12 L5 17 M12 7 L17 12 L12 17 M17 4 L22 12 L17 20', cond: () => !G.run.muts.nodash },
+  { id: 'e_swarm', rarity: 4, max: 1, need: { drone: 2, laser: 1 }, name: 'Laserschwarm',
+    desc: 'Deine Drohnen feuern zusätzlich alle 1,5 s einen eigenen Phasenlaser.',
+    icon: 'M12 9 L15 12 L12 15 L9 12 Z M15 12 H23 M4 4 L9 9 M4 20 L9 15' },
+];
+
 const UPGRADE_BY_ID = {};
 for (const u of UPGRADES) UPGRADE_BY_ID[u.id] = u;
+for (const u of EVOS) UPGRADE_BY_ID[u.id] = u;
+
+/** Evolutionen, deren Zutaten erfüllt und die noch nicht gewählt sind. */
+function evoReady() {
+  return EVOS.filter((e) => !G.up[e.id] && (!e.cond || e.cond()) && Object.keys(e.need).every((k) => (G.up[k] || 0) >= e.need[k]));
+}
+/** Zutaten einer Evolution als Text. */
+const evoRecipe = (e) => Object.keys(e.need).map((k) => UPGRADE_BY_ID[k].name + ' ' + e.need[k]).join(' + ');
 
 function upgradeIcon(u) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${u.icon}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -106,14 +150,17 @@ function upgradeIcon(u) {
 
 /** Zieht bis zu n verschiedene, noch nicht ausgereizte Aufwertungen (nach Seltenheit gewichtet).
     rare = true: die erste Karte ist mindestens episch (Belohnung nach Bossen). */
-function rollUpgrades(n, rare) {
-  const pool = UPGRADES.filter((u) => (G.up[u.id] || 0) < u.max && (!u.cond || u.cond()));
+function rollUpgrades(n, rare, skip) {
+  const ban = G.banned || {};
+  const pool = UPGRADES.filter((u) => (G.up[u.id] || 0) < u.max && (!u.cond || u.cond()) && !ban[u.id] && !(skip && skip.indexOf(u) >= 0));
+  const luck = 1 + 0.12 * (G.demo ? 0 : metaLv('m_luck'));
   const out = [];
   while (out.length < n && pool.length) {
     const force = rare && out.length === 0 && pool.some((u) => u.rarity >= 2);
     let total = 0;
     const w = pool.map((u) => {
       let x = RARITY[u.rarity].weight + (u.rarity === 3 ? G.loop * 0.6 : u.rarity > 0 ? G.loop * 2.2 : 0);
+      if (u.rarity > 0) x *= luck;
       if (force && u.rarity < 2) x = 0;
       total += x;
       return x;
@@ -123,12 +170,19 @@ function rollUpgrades(n, rare) {
     out.push(pool[i]);
     pool.splice(i, 1);
   }
+  // Evolution: ersetzt die letzte Karte (nach Bossen und mit Evolutionslabor öfter)
+  const evo = evoReady().filter((e) => !(skip && skip.indexOf(e) >= 0));
+  if (evo.length && n > 1 && Math.random() < (rare ? 1 : 0.55 + 0.2 * (G.demo ? 0 : metaLv('m_evo')))) {
+    out[Math.min(out.length, n - 1)] = pick(evo);
+  }
   return out;
 }
 
 function applyUpgrade(u) {
   G.up[u.id] = (G.up[u.id] || 0) + 1;
   if (u.rarity === 3) award('legend');
+  if (u.rarity === 4) { award('evo'); if (typeof callout === 'function') callout('EVOLUTION', u.name.toUpperCase(), 'evo'); }
+  if (!G.demo) codexMark('u', u.id);
   recomputeStats();
   const p = G.player;
   if (u.id === 'hp') p.hp = Math.min(S.maxHp, p.hp + 1);

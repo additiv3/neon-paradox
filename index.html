@@ -74,6 +74,11 @@
 
   <div id="banner"></div>
   <div id="toast"></div>
+  <div id="callout" class="callout"></div>
+  <div id="tut" class="tut hidden"></div>
+  <div id="bosscard" class="bosscard"></div>
+  <div id="news" class="news"></div>
+  <button id="update" class="update">NEUE VERSION VERFÜGBAR  ·  TIPPEN ZUM NEU LADEN</button>
 
   <!-- Titel -->
   <section id="screen-title" class="screen show">
@@ -121,6 +126,7 @@
         <button id="btn-hangar" class="btn">HANGAR</button>
         <button id="btn-workshop" class="btn">WERKSTATT</button>
         <button id="btn-ach" class="btn">ERFOLGE</button>
+        <button id="btn-codex" class="btn">KODEX</button>
         <button id="btn-hub-settings" class="btn">EINSTELLUNGEN</button>
         <button id="btn-hub-back" class="btn ghost">ZURÜCK</button>
       </footer>
@@ -132,7 +138,7 @@
     <div class="hub">
       <header class="hub-top">
         <h2 class="hub-title">KAMPAGNE</h2>
-        <div id="camp-stars" class="camp-stars">★ 0 / 75</div>
+        <div id="camp-stars" class="camp-stars">★ 0 / 105</div>
       </header>
       <div class="hub-main">
         <div id="camp-grid" class="camp-grid"></div>
@@ -147,7 +153,7 @@
     <div class="hub">
       <header class="hub-top">
         <h2 class="hub-title">HANGAR</h2>
-        <div class="hub-hint">Jedes Schiff spielt sich anders. Neue Schiffe gibt es mit höherem Rang.</div>
+        <div class="hub-hint">Jedes Schiff spielt sich anders. Mit jedem Lauf steigt seine Meisterschaft – mit Lackierungen, Funkenspur und einem Meister-Bonus.</div>
       </header>
       <div id="hangar-grid" class="hangar-grid"></div>
       <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
@@ -176,6 +182,21 @@
       </header>
       <div id="ach-stats" class="hub-hint left"></div>
       <div id="ach-list" class="ach-list"></div>
+      <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
+    </div>
+  </section>
+
+  <!-- Kodex -->
+  <section id="screen-codex" class="screen menu">
+    <div class="hub">
+      <header class="hub-top">
+        <h2 class="hub-title">KODEX</h2>
+        <div id="codex-tabs" class="set-tabs">
+          <button data-tab="e">GEGNER</button><button data-tab="u">AUFWERTUNGEN</button><button data-tab="v">EVOLUTIONEN</button><button data-tab="b">BOSSE</button>
+        </div>
+        <div id="codex-count" class="camp-stars">0 / 0</div>
+      </header>
+      <div id="codex-list" class="codex-list"></div>
       <footer class="hub-foot"><button class="btn ghost js-back">ZURÜCK</button></footer>
     </div>
   </section>
@@ -274,6 +295,7 @@
   <script src="js/upgrades.js"></script>
   <script src="js/meta.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/extras.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/menus.js"></script>
 </body>

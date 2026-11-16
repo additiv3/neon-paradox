@@ -69,6 +69,7 @@ function applySettings() {
   applyQuality();
   applyTouchLayout();
   updateKeyHints();
+  applyA11y();
 }
 
 function applyQuality() {
@@ -187,7 +188,12 @@ function renderSettings() {
       rowSlider('sfx', 'Effekte', '', 0, 1, 0.05, pct) +
       '<div class="set-group">BILD</div>' +
       rowSlider('shake', 'Bildschirmwackeln', 'Bei Explosionen und Treffern', 0, 1, 0.05, pct) +
-      rowSeg('quality', 'Grafik', 'Niedriger = flüssiger auf schwachen Geräten', [['auto', 'AUTO'], ['high', 'HOCH'], ['mid', 'MITTEL'], ['low', 'NIEDRIG']], st.quality);
+      rowSeg('quality', 'Grafik', 'Niedriger = flüssiger auf schwachen Geräten', [['auto', 'AUTO'], ['high', 'HOCH'], ['mid', 'MITTEL'], ['low', 'NIEDRIG']], st.quality) +
+      '<div class="set-group">BARRIEREFREIHEIT</div>' +
+      rowToggle('calm', 'Weniger Blitze', 'Dämpft Lichtblitze, Glitch- und Welleneffekte', st.calm) +
+      rowToggle('cb', 'Farbenblind-Modus', 'Feindliche Geschosse leuchten gelb statt rot', st.cb) +
+      `<div class="set-group">ÜBER</div><div class="set-row"><div class="set-lbl"><b>NEON PARADOX ${VERSION}</b><span>Neuigkeiten dieser Version ansehen</span></div>` +
+      '<div class="set-ctl seg"><button class="seg-b" id="btn-news">NEU</button></div></div>';
   }
   $('set-body').innerHTML = h;
 }
@@ -195,7 +201,7 @@ function renderSettings() {
 function resetSettingsTab() {
   const st = P.settings, def = defaultSettings(), tab = setUi.tab;
   const ids = tab === 'touch' ? ['tSize', 'tAlpha', 'stick', 'sens', 'dead', 'autoAim', 'lefty', 'haptic', 'pos']
-    : tab === 'keys' ? [] : ['shake', 'quality', 'music', 'sfx'];
+    : tab === 'keys' ? [] : ['shake', 'quality', 'music', 'sfx', 'calm', 'cb'];
   for (const id of ids) st[id] = def[id];
   if (tab === 'touch') st.pos = {};
   if (tab === 'keys') { st.keys = null; st.keyNames = {}; G.autoFire = true; P.autoFire = true; }
@@ -209,7 +215,7 @@ function setSetting(id, v) {
   const st = P.settings;
   if (id === 'autoFire') { G.autoFire = v === '1'; save(); }
   else if (id === 'sound') { Sfx.setMuted(v !== '1'); updateSoundLabel(); save(); }
-  else if (id === 'lefty' || id === 'autoAim' || id === 'haptic') st[id] = v === '1';
+  else if (id === 'lefty' || id === 'autoAim' || id === 'haptic' || id === 'calm' || id === 'cb') { st[id] = v === '1'; applyA11y(); }
   else if (id === 'stick' || id === 'quality') st[id] = v;
   else st[id] = +v;
   if (id === 'music' || id === 'sfx') Sfx.setVolume(st.music, st.sfx);

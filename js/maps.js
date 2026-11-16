@@ -41,9 +41,39 @@ const MAPS = {
     obs: [box(CX - 90, 150, CX + 90, 420), box(CX - 90, ARENA_H - 420, CX + 90, ARENA_H - 150)],
     portals: [[330, 270, ARENA_W - 330, ARENA_H - 270], [ARENA_W - 330, 270, 330, ARENA_H - 270]],
   },
+  gears: {
+    name: 'ZAHNWERK', desc: 'Sechs Säulen kreisen um einen festen Kern – innen und außen gegenläufig. Deckung, die wandert.',
+    grid: [0.04, 0.12, 0.09], wall: [0.35, 1.0, 0.55], music: 5, moving: true,
+    spawn: [CX, CY + 215], home: [CX, CY - 215], bossAt: [CX - 760, CY],
+    obs: [circ(CX, CY, 92), circ(0, 0, 54), circ(0, 0, 54), circ(0, 0, 54), circ(0, 0, 54), circ(0, 0, 46), circ(0, 0, 46)],
+    move(t, o) {
+      for (let k = 0; k < 4; k++) { const a = t * 0.32 + (k * Math.PI) / 2; o[1 + k].x = CX + Math.cos(a) * 330; o[1 + k].y = CY + Math.sin(a) * 330; }
+      for (let k = 0; k < 2; k++) { const a = -t * 0.2 + k * Math.PI + 0.6; o[5 + k].x = CX + Math.cos(a) * 640; o[5 + k].y = CY + Math.sin(a) * 470; }
+    },
+  },
+  gates: {
+    name: 'SCHLEUSEN', desc: 'Zwei Schleusentore gleiten auf und ab und teilen die Arena immer wieder neu. Timing ist alles.',
+    grid: [0.12, 0.08, 0.02], wall: [1.0, 0.85, 0.3], music: -3, moving: true, spawn: [CX, CY + 380], home: [CX, CY - 380],
+    obs: [box(0, 0, 1, 1), box(0, 0, 1, 1), box(CX - 70, CY - 70, CX + 70, CY + 70)],
+    move(t, o) {
+      const off = Math.sin(t * 0.55) * 330, h = 300;
+      const a = o[0], b = o[1];
+      a.x0 = CX - 470; a.x1 = CX - 410; a.y0 = CY - h + off; a.y1 = CY + h + off;
+      b.x0 = CX + 410; b.x1 = CX + 470; b.y0 = CY - h - off; b.y1 = CY + h - off;
+    },
+  },
 };
-const MAP_ORDER = ['grid', 'pillars', 'cross', 'blocks', 'reactor', 'rift'];
+const MAP_ORDER = ['grid', 'pillars', 'cross', 'blocks', 'reactor', 'rift', 'gears', 'gates'];
 for (const id in MAPS) MAPS[id].id = id;
+const MAP_MUSIC = { grid: 0, pillars: -2, cross: 3, blocks: -4, reactor: -5, rift: 2, gears: 5, gates: -3 };
+
+/** Bewegliche Hindernisse (Zahnwerk, Schleusen) – Position abhängig von der Loop-Zeit. */
+function updateMovingObs(dt) {
+  const M = G.map;
+  if (!M || !M.move) return;
+  G.mapT = (G.mapT || 0) + dt;
+  M.move(G.mapT, M.obs);
+}
 
 /** Aktiviert eine Arena: Farben, Gitter-Maske, Startpunkt. */
 function setMap(id) {
@@ -51,8 +81,11 @@ function setMap(id) {
   G.map = M;
   COL.wall = M.wall;
   Grid.setTheme(M.grid);
-  Grid.setMask((x, y) => mapBlocked(x, y, -6));
+  G.mapT = 0;
+  if (M.move) M.move(0, M.obs);
+  Grid.setMask(M.moving ? () => false : (x, y) => mapBlocked(x, y, -6));
   G.hazT = 4; G.stormT = 2;
+  Sfx.setTheme(MAP_MUSIC[M.id] || 0, M.id === 'reactor' || M.id === 'rift' || M.id === 'gates' ? 1 : 0);
 }
 const mapSpawn = () => G.map.spawn || [CX, CY];
 

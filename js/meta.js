@@ -10,13 +10,14 @@ const P = {
   stats: { runs: 0, kills: 0, bosses: 0, loops: 0, time: 0, anoms: 0 },
   muted: false, autoFire: true,
   settings: defaultSettings(),
+  codex: { e: {}, u: {}, b: {} }, mastery: {}, paint: {}, tutDone: false, ver: '',
 };
 
 /** Standard-Einstellungen (siehe settings.js). */
 function defaultSettings() {
   return {
     keys: null, tSize: 1, tAlpha: 0.8, stick: 'float', sens: 1.3, dead: 0.14, autoAim: true, lefty: false, pos: {},
-    haptic: true, shake: 1, quality: 'auto', music: 0.8, sfx: 1,
+    haptic: true, shake: 1, quality: 'auto', music: 0.8, sfx: 1, calm: false, cb: false,
   };
 }
 
@@ -48,6 +49,7 @@ function loadProfile() {
   const def = defaultSettings();
   for (const k in def) if (P.settings[k] === undefined) P.settings[k] = def[k];
   if (!P.settings.pos || typeof P.settings.pos !== 'object') P.settings.pos = {};
+  for (const k of ['e', 'u', 'b']) if (!P.codex[k] || typeof P.codex[k] !== 'object') P.codex[k] = {};
 }
 
 const metaLv = (id) => P.meta[id] || 0;
@@ -75,6 +77,8 @@ const UNLOCKS = [
   { rank: 7, type: 'feature', id: 'mutators', label: 'Mutatoren für PARADOX und SCHWARM' },
   { rank: 8, type: 'map', id: 'rift', label: 'Arena RISS' },
   { rank: 9, type: 'ship', id: 'prisma', label: 'Schiff PRISMA' },
+  { rank: 10, type: 'map', id: 'gears', label: 'Arena ZAHNWERK' },
+  { rank: 11, type: 'map', id: 'gates', label: 'Arena SCHLEUSEN' },
   { rank: 12, type: 'ship', id: 'chronos', label: 'Schiff CHRONOS' },
   { camp: 'c20', type: 'ship', id: 'nexus', label: 'Schiff NEXUS' },
 ];
@@ -141,6 +145,11 @@ function shipSvg(id) {
 
 // ---------------------------------------------------------------- Werkstatt (dauerhafte Verbesserungen)
 const COST5 = [10, 20, 35, 55, 80];
+const META_TIERS = [
+  { name: 'STUFE I  ·  GRUNDLAGEN', rank: 1 },
+  { name: 'STUFE II  ·  TAKTIK', rank: 4 },
+  { name: 'STUFE III  ·  EXPERIMENTE', rank: 7 },
+];
 const META = [
   { id: 'm_hull', name: 'Verstärkte Hülle', desc: '+1 Hülle zu Beginn jedes Laufs', max: 2, cost: [40, 120] },
   { id: 'm_dmg', name: 'Feinjustierung', desc: '+4 % Schaden je Stufe', max: 5, cost: COST5 },
@@ -150,11 +159,18 @@ const META = [
   { id: 'm_echo', name: 'Echo-Kern', desc: '+5 % Echo-Schaden je Stufe', max: 5, cost: COST5 },
   { id: 'm_reroll', name: 'Neuwürfler', desc: '+1 Neuwurf der Aufwertungen pro Lauf', max: 3, cost: [25, 60, 110] },
   { id: 'm_core', name: 'Kernfusion', desc: '+10 % Kerne je Stufe', max: 5, cost: COST5 },
+  { id: 'm_banish', tier: 1, name: 'Verbannung', desc: '+1 Verbannung pro Lauf – entfernt eine Karte für den Rest des Laufs', max: 2, cost: [40, 90] },
+  { id: 'm_luck', tier: 1, name: 'Glücksalgorithmus', desc: '+12 % Chance auf seltene, epische und legendäre Karten je Stufe', max: 3, cost: [50, 100, 160] },
+  { id: 'm_champ', tier: 1, name: 'Trophäenjäger', desc: 'Champions geben +50 % Kerne und Splitter je Stufe', max: 2, cost: [60, 120] },
+  { id: 'm_evo', tier: 2, name: 'Evolutionslabor', desc: 'Evolutionen erscheinen 20 % häufiger je Stufe', max: 2, cost: [80, 160] },
+  { id: 'm_start', tier: 2, name: 'Vorrat', desc: 'Paradox, Schwarm, Boss-Rush und Tages-Paradox beginnen mit einer zufälligen gewöhnlichen Aufwertung', max: 1, cost: [150] },
 ];
+const metaTier = (m) => m.tier || 0;
+const metaOpen = (m) => rankInfo(P.xp).rank >= META_TIERS[metaTier(m)].rank;
 
 function buyMeta(id) {
   const m = META.find((x) => x.id === id), lv = metaLv(id);
-  if (!m || lv >= m.max || P.cores < m.cost[lv]) return false;
+  if (!m || lv >= m.max || P.cores < m.cost[lv] || !metaOpen(m)) return false;
   P.cores -= m.cost[lv];
   P.meta[id] = lv + 1;
   saveProfile();
@@ -178,15 +194,20 @@ const FREE_MUTATORS = ['swarm', 'fast', 'dark', 'elite', 'nodash', 'unstable', '
 
 // ---------------------------------------------------------------- Modi
 const MODES = {
+  tutorial: {
+    name: 'TUTORIAL', tag: 'Die Grundlagen', css: '#7dffb2',
+    desc: 'Lerne in zwei Minuten alles Wichtige: Bewegen, Feuern, Splitter, Dash, Nova und Echos.',
+    rules: ['Schritt für Schritt, ohne Druck', 'Im ersten Loop kannst du nicht sterben', 'Danach kämpft dein erstes Echo mit dir'],
+  },
   paradox: {
     name: 'PARADOX', tag: 'Der Klassiker', css: '#5ef2ff',
     desc: 'Endlose Zeitschleifen. Jede überstandene Runde wird zu einem Echo.',
     rules: ['Loops von 30 Sekunden, jeder fünfte ist ein Bosskampf', 'Ab Loop 3 können Anomalien die Regeln ändern', 'Nach Bossen winkt eine epische oder legendäre Aufwertung'],
   },
   campaign: {
-    name: 'KAMPAGNE', tag: '25 Sektoren · 75 Sterne', css: '#ffd75e',
+    name: 'KAMPAGNE', tag: '30 Sektoren · 5 Geheimakten', css: '#ffd75e',
     desc: 'Handgebaute Missionen mit eigenen Arenen, Gegnern, Regeln und Sonderbedingungen.',
-    rules: ['Fünf Akte mit je fünf Sektoren und einem Boss am Ende', 'Überlebens-, Jagd- und Bossmissionen', 'Bis zu drei Sterne pro Sektor – Akt IV schaltet ein neues Schiff frei'],
+    rules: ['Sechs Akte mit je einem Endgegner', 'Überleben, Jagd, Kern verteidigen, Splitter sammeln, schrumpfende Zone', 'Jeder Sektor hat sein eigenes Drei-Sterne-Ziel', 'Zwei Sterne in allen Sektoren eines Akts öffnen eine Geheimakte'],
   },
   swarm: {
     name: 'SCHWARM', tag: 'Endlos-Überleben', css: '#ff3d9a',
@@ -204,7 +225,7 @@ const MODES = {
     rules: ['Zwei Mutatoren und eine Arena, für alle gleich', 'Eine zufällige Aufwertung zum Start', 'Ein Rekord pro Tag'],
   },
 };
-const MODE_ORDER = ['paradox', 'campaign', 'swarm', 'bossrush', 'daily'];
+const MODE_ORDER = ['paradox', 'campaign', 'swarm', 'bossrush', 'daily', 'tutorial'];
 
 // ---------------------------------------------------------------- Kampagne
 const CAMPAIGN = [
@@ -262,10 +283,59 @@ const CAMPAIGN = [
     map: 'cross', loops: 4, eff: 9, step: 0.6, muts: ['dark', 'nodash'], start: { multi: 2, dmg: 5, rate: 4, pierce: 1, drone: 2, shield: 1, hp: 1, echocap: 1 } },
   { id: 'c25', act: 5, name: 'Omega', desc: 'Am Ende der Zeit wartet der letzte Wächter. Drei Loops – dann OMEGA.',
     map: 'rift', loops: 3, eff: 10, step: 0.6, boss: 5, bossHp: 0.3, start: { multi: 3, dmg: 6, rate: 4, pierce: 2, echocap: 2, chain: 1, homing: 1, laser: 1, hp: 1 } },
+
+  { id: 'c26', act: 6, name: 'Zahnwerk', desc: 'Die Säulen kreisen um die Mitte. Schildträger und Heiler halten die Linie – greif von der Seite an.',
+    map: 'gears', loops: 3, eff: 9, step: 0.6, champ: true, pool: ['guard', 'mender', 'drifter', 'weaver', 'dasher'], start: { multi: 2, dmg: 6, rate: 4, pierce: 2, bounce: 1, crit: 2, echocap: 1, shield: 1 } },
+  { id: 'c27', act: 6, name: 'Letzte Bastion', desc: 'Ein Zeitkern in der Mitte hält die Schleife stabil. Fällt er, fällt alles. Viele Gegner wollen nur zu ihm – und alle vier Sekunden wehrt er sich mit einer Schockwelle.',
+    goal: 'defend', coreHp: 50, loops: 3, eff: 7, step: 0.6, pool: ['drifter', 'weaver', 'dasher', 'splitter', 'guard'], start: { multi: 2, dmg: 5, rate: 4, pierce: 1, drone: 2, orbit: 1, echocap: 1 } },
+  { id: 'c28', act: 6, name: 'Schleusenfall', desc: 'Die Zone zieht sich in jedem Loop zusammen, die Schleusen gleiten auf und zu. Bleib im Kreis.',
+    map: 'gates', goal: 'shrink', zoneMin: 320, loops: 3, eff: 8, step: 0.6, pool: ['layer', 'drifter', 'weaver', 'shooter'], start: { multi: 2, dmg: 6, rate: 4, pierce: 2, chain: 1, shield: 1, hp: 1 } },
+  { id: 'c29', act: 6, name: 'Splitterflut', desc: 'Sammle 3000 Splitter, bevor dich die Flut verschlingt – und ein Champion wartet in jedem Loop.',
+    map: 'pillars', loops: 99, collect: 3000, eff: 9, step: 0.6, champ: true, start: { multi: 3, dmg: 6, rate: 4, pierce: 2, magnet: 2, explode: 1, crit: 2 } },
+  { id: 'c30', act: 6, name: 'Das Zeitherz', desc: 'Der Ursprung aller Schleifen schlägt im Zahnwerk. Drei Loops – dann das ZEITHERZ.',
+    map: 'gears', loops: 3, eff: 11, step: 0.6, boss: 6, bossHp: 0.3, start: { multi: 3, dmg: 7, rate: 4, pierce: 2, echocap: 2, chain: 2, crit: 2, e_storm: 1, homing: 1, laser: 1, hp: 1, shield: 1 } },
+
+  // Geheimakten: öffnen sich mit zwei Sternen in allen fünf Sektoren eines Akts
+  { id: 'b1', act: 1, bonus: true, name: 'Schwarmherz', desc: 'Sammle 600 Splitter in einem endlosen Schwarm aus Drohnen und Webern.',
+    loops: 99, collect: 600, eff: 3, step: 0.7, muts: ['swarm'], pool: ['drifter', 'weaver', 'splitter'], start: { multi: 1, dmg: 2, rate: 2, magnet: 1 } },
+  { id: 'b2', act: 2, bonus: true, name: 'Kernschmelze', desc: 'Verteidige den Zeitkern gegen Stürmer und Bomber – zwischen den Säulen.',
+    map: 'pillars', goal: 'defend', coreHp: 45, loops: 3, eff: 4, step: 0.6, pool: ['drifter', 'dasher', 'bomber', 'weaver'], start: { multi: 1, dmg: 3, rate: 2, pierce: 1, drone: 1 } },
+  { id: 'b3', act: 3, bonus: true, name: 'Spiegelkabinett', desc: 'Spiegel werfen deine Schüsse zurück, Schildträger blocken sie. Ein Champion bewacht die Kammern.',
+    map: 'blocks', loops: 3, eff: 7, step: 0.6, champ: true, pool: ['reflector', 'guard', 'weaver', 'drifter'], start: { multi: 2, dmg: 4, rate: 3, bounce: 2, laser: 1, chain: 1 } },
+  { id: 'b4', act: 4, bonus: true, name: 'Minenfeld', desc: 'Minenleger und Phasengeister in einer schrumpfenden Zone. Kein Platz zum Ausweichen.',
+    map: 'cross', goal: 'shrink', zoneMin: 300, loops: 3, eff: 8, step: 0.6, pool: ['layer', 'phaser', 'drifter', 'mender'], start: { multi: 2, dmg: 5, rate: 4, pierce: 2, cryo: 2, shield: 1, hp: 1 } },
+  { id: 'b5', act: 5, bonus: true, name: 'Nullzeit', desc: 'Kein Vorspiel: OMEGA wartet sofort. Glaskanone mit zwei Schildladungen – ein Treffer zu viel und es ist vorbei.',
+    map: 'rift', loops: 0, eff: 9, boss: 5, bossHp: 0.42, muts: ['glass'], start: { multi: 3, dmg: 5, rate: 4, pierce: 2, echocap: 2, chain: 1, homing: 1, laser: 2, dashcd: 2, shield: 2 } },
 ];
-const ACT_NAMES = ['ERSTKONTAKT', 'IM ECHO', 'DAS PARADOXON', 'RISSE IM RAUM', 'OMEGA'];
+// Drei-Sterne-Ziele je Sektor (★ abschließen · ★ höchstens 2 Treffer · ★ Sonderziel)
+const STAR3 = {
+  c1: { t: 'nohit' }, c2: { t: 'mult', v: 80 }, c3: { t: 'nodash' }, c4: { t: 'streak', v: 30 }, c5: { t: 'time', v: 110 },
+  c6: { t: 'nohit' }, c7: { t: 'mult', v: 120 }, c8: { t: 'novas', v: 3 }, c9: { t: 'streak', v: 40 }, c10: { t: 'time', v: 120 },
+  c11: { t: 'nohit' }, c12: { t: 'mult', v: 200 }, c13: { t: 'streak', v: 60 }, c14: { t: 'nonova' }, c15: { t: 'time', v: 150 },
+  c16: { t: 'nohit' }, c17: { t: 'time', v: 160 }, c18: { t: 'streak', v: 50 }, c19: { t: 'nodash' }, c20: { t: 'time', v: 130 },
+  c21: { t: 'mult', v: 150 }, c22: { t: 'nohit' }, c23: { t: 'time', v: 200 }, c24: { t: 'novas', v: 2 }, c25: { t: 'nohit' },
+  c26: { t: 'nodash' }, c27: { t: 'core', v: 70 }, c28: { t: 'nohit' }, c29: { t: 'time', v: 150 }, c30: { t: 'nohit' },
+  b1: { t: 'time', v: 80 }, b2: { t: 'core', v: 60 }, b3: { t: 'streak', v: 40 }, b4: { t: 'nodash' }, b5: { t: 'time', v: 60 },
+};
+for (const lv of CAMPAIGN) if (STAR3[lv.id]) lv.s3 = STAR3[lv.id];
+for (const id of ['c13', 'c14', 'c18', 'c19', 'c22', 'c24']) CAMPAIGN.find((l) => l.id === id).champ = true;
+
+const ACT_NAMES = ['ERSTKONTAKT', 'IM ECHO', 'DAS PARADOXON', 'RISSE IM RAUM', 'OMEGA', 'JENSEITS DER ZEIT'];
 const campaignLoops = (lv) => lv.loops + (lv.boss ? 1 : 0);
-const campaignUnlocked = (i) => i === 0 || (P.campaign[CAMPAIGN[i - 1].id] || 0) > 0;
+/** Hauptsektoren öffnen sich nacheinander, Geheimakten mit 2 Sternen in allen Sektoren ihres Akts. */
+function campaignUnlocked(i) {
+  const lv = CAMPAIGN[i];
+  if (lv.bonus) return CAMPAIGN.every((x) => x.bonus || x.act !== lv.act || (P.campaign[x.id] || 0) >= 2);
+  return i === 0 || (P.campaign[CAMPAIGN[i - 1].id] || 0) > 0;
+}
+/** Anzeige-Nummer: 1 … 30 oder B1 … B5. */
+const secLabel = (lv) => (lv.bonus ? 'B' + lv.id.slice(1) : String(CAMPAIGN.indexOf(lv) + 1));
+/** Index des nächsten Hauptsektors (oder -1). */
+function nextSector(i) {
+  const lv = CAMPAIGN[i];
+  if (lv.bonus) return -1;
+  return i + 1 < CAMPAIGN.length && !CAMPAIGN[i + 1].bonus ? i + 1 : -1;
+}
 function totalStars() {
   let s = 0;
   for (const lv of CAMPAIGN) s += P.campaign[lv.id] || 0;
@@ -331,6 +401,16 @@ const ACHIEVEMENTS = [
   { id: 'legend', name: 'Legende', desc: 'Wähle eine legendäre Aufwertung.', cores: 10 },
   { id: 'anom10', name: 'Sturmerprobt', desc: 'Überstehe 10 Loops mit Anomalie.', cores: 20 },
   { id: 'maps', name: 'Weltenbummler', desc: 'Überstehe einen Loop in jeder Arena.', cores: 25 },
+  { id: 'tut', name: 'Grundausbildung', desc: 'Schließe das Tutorial ab.', cores: 5 },
+  { id: 'evo', name: 'Evolution', desc: 'Wähle deine erste Evolution.', cores: 15 },
+  { id: 'champ', name: 'Champion-Jäger', desc: 'Besiege insgesamt 10 Champions.', cores: 20 },
+  { id: 'streak', name: 'Zeitsturm', desc: 'Erreiche eine Serie von 60 Abschüssen.', cores: 15 },
+  { id: 'codex', name: 'Archivar', desc: 'Entdecke alle Gegnerarten im Kodex.', cores: 25 },
+  { id: 'mastery', name: 'Meisterpilot', desc: 'Erreiche Meisterschaft 5 mit einem Schiff.', cores: 25 },
+  { id: 'boss6', name: 'Herzstillstand', desc: 'Besiege das ZEITHERZ.', cores: 60 },
+  { id: 'act6', name: 'Jenseits der Zeit', desc: 'Schließe Sektor 30 ab.', cores: 70 },
+  { id: 'stars90', name: 'Sternenmeer', desc: 'Sammle 90 Sterne in der Kampagne.', cores: 70 },
+  { id: 'bonus', name: 'Geheimdienst', desc: 'Schließe alle fünf Geheimakten ab.', cores: 60 },
 ];
 const ACH_BY_ID = {};
 for (const a of ACHIEVEMENTS) ACH_BY_ID[a.id] = a;

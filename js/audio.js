@@ -4,7 +4,8 @@
    dessen Ebenen mit der Spielintensität zugeschaltet werden. Keine Audiodateien. */
 const Sfx = (() => {
   let ctx = null, master, sfx, mfilter, musicOut, duck, delayIn, noiseBuf;
-  let muted = false, quiet = false, volM = 1, volS = 1, intensity = 0, nextT = 0, step = 0;
+  let muted = false, quiet = false, volM = 1, volS = 1, intensity = 0, nextT = 0, step = 0, trans = 0, prog = 0;
+  const PROG = [[0, 1, 2, 3], [0, 2, 1, 3]];
   let shardN = 0, shardT = -9, beatA = -9, beatB = -9;
   const last = {};
   const BPM = 124, ST = 60 / BPM / 4;
@@ -154,18 +155,21 @@ const Sfx = (() => {
   }
 
   function playStep(i, t) {
-    const s = i & 15, bar = i >> 4, ch = CH[(bar >> 1) & 3], I = intensity;
+    const s = i & 15, bar = i >> 4, c0 = CH[PROG[prog][(bar >> 1) & 3]], I = intensity, tr = trans;
+    const ch = { r: c0.r + tr, n: [c0.n[0] + tr, c0.n[1] + tr, c0.n[2] + tr, c0.n[3] + tr] };
     if (s === 0 && (bar & 1) === 0) pad(t, ch.n, ST * 32, I === 0 ? 0.03 : 0.02);
     if (I >= 1 && (s & 3) === 0) kick(t);
+    if (I >= 4 && s === 14) kick(t);
     if (I >= 2 && (s === 4 || s === 12)) snare(t);
     if (I >= 1 && (s & 3) === 2) hat(t, 0.05);
     if (I >= 2 && (s & 1) === 1) hat(t, 0.02);
+    if (I >= 4 && (s & 1) === 0 && (s & 3) !== 2) hat(t, 0.025);
     if (I >= 3 && s === 14) hat(t, 0.05, 0.12);
     if (I >= 1 && (s & 3) !== 0) bass(t, ch.r + 12 + ((s & 3) === 2 ? 12 : 0));
     if (I === 0) { if ((s & 1) === 0) arp(t, ch.n[ARP[s]] + 12, 0.028); }
-    else if (I >= 2) arp(t, ch.n[ARP[s]] + 12, 0.034);
+    else if (I >= 2) arp(t, ch.n[ARP[s]] + (I >= 4 && (s & 1) ? 24 : 12), 0.034);
     else if ((s & 3) === 0) arp(t, ch.n[ARP[s]] + 12, 0.03);
-    if (I >= 3) { const m = LEAD[bar & 7][s]; if (m) lead(t, m); }
+    if (I >= 3) { const m = LEAD[bar & 7][s]; if (m) { lead(t, m + tr); if (I >= 4) lead(t, m + tr - 12); } }
   }
 
   function tick() {
@@ -194,6 +198,8 @@ const Sfx = (() => {
   return {
     init, beat,
     music(level) { intensity = level; },
+    /** Tonart (Halbtöne) und Akkordfolge je Arena. */
+    setTheme(semi, p) { trans = semi; prog = p ? 1 : 0; },
     muffle(on) { if (ctx) mfilter.frequency.setTargetAtTime(on ? 520 : 18000, ctx.currentTime, 0.12); },
     setQuiet(v) { quiet = v; },
     /** Lautstärke von Musik und Effekten (0 … 1). */

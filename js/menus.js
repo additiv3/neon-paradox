@@ -4,11 +4,16 @@ const menu = { mode: 'paradox', level: 0, muts: { paradox: [], swarm: [] }, map:
 const ENEMY_NAMES = {
   drifter: 'Drifter', weaver: 'Weber', dasher: 'Stürmer', splitter: 'Teiler', bomber: 'Bomber',
   shooter: 'Schütze', lancer: 'Lanze', tank: 'Koloss', well: 'Singularität', phaser: 'Phasengeist', hive: 'Brutstock',
+  guard: 'Schildträger', mender: 'Heiler', layer: 'Minenleger', emine: 'Mine', reflector: 'Spiegel', mini: 'Mini',
 };
-const ROMAN = ['I', 'II', 'III', 'IV', 'V'];
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
 function campaignGoal(lv) {
   if (lv.kills) return `Vernichte ${lv.kills} Gegner`;
+  if (lv.collect) return `Sammle ${lv.collect} Splitter`;
+  if (lv.goal === 'defend') return `Verteidige den Zeitkern ${lv.loops} Loops lang`;
+  if (lv.goal === 'shrink') return `Überstehe ${lv.loops} Loops in der schrumpfenden Zone`;
+  if (lv.boss && !lv.loops) return `Besiege ${bossName(lv.boss)}`;
   return lv.boss ? `Überstehe ${lv.loops} Loops und besiege ${bossName(lv.boss)}` : `Überstehe ${lv.loops} Loops`;
 }
 function mapChips(mode) {
@@ -120,17 +125,21 @@ function openCampaign() {
 function renderCampaign() {
   $('camp-stars').textContent = `★ ${totalStars()} / ${CAMPAIGN.length * 3}`;
   let h = '';
-  const acts = CAMPAIGN[CAMPAIGN.length - 1].act;
+  const acts = Math.max(...CAMPAIGN.map((l) => l.act));
+  const tile = (lv, i) => {
+    const un = campaignUnlocked(i), st = P.campaign[lv.id] || 0;
+    return `<button class="tile${i === menu.level ? ' sel' : ''}${un ? '' : ' locked'}${lv.boss ? ' boss' : ''}${lv.bonus ? ' bonus' : ''}${st ? ' done' : ''}" data-lv="${i}">` +
+      `<span class="tile-n">${secLabel(lv)}</span><span class="tile-name">${un || !lv.bonus ? lv.name : '???'}</span>` +
+      `<span class="tile-stars">${un ? starText(st) : lv.bonus ? 'GEHEIM' : 'GESPERRT'}</span></button>`;
+  };
   for (let act = 1; act <= acts; act++) {
-    h += `<div class="act"><div class="act-name">AKT ${ROMAN[act - 1]}  ·  ${ACT_NAMES[act - 1]}</div><div class="act-row">`;
-    CAMPAIGN.forEach((lv, i) => {
-      if (lv.act !== act) return;
-      const un = campaignUnlocked(i), st = P.campaign[lv.id] || 0;
-      h += `<button class="tile${i === menu.level ? ' sel' : ''}${un ? '' : ' locked'}${lv.boss ? ' boss' : ''}${st ? ' done' : ''}" data-lv="${i}">` +
-        `<span class="tile-n">${i + 1}</span><span class="tile-name">${lv.name}</span>` +
-        `<span class="tile-stars">${un ? starText(st) : 'GESPERRT'}</span></button>`;
-    });
-    h += '</div></div>';
+    const actOpen = CAMPAIGN.some((lv, i) => lv.act === act && !lv.bonus && campaignUnlocked(i));
+    h += `<div class="act${actOpen ? '' : ' closed'}"><div class="act-name">AKT ${ROMAN[act - 1]}  ·  ${ACT_NAMES[act - 1]}</div><div class="act-path">`;
+    CAMPAIGN.forEach((lv, i) => { if (lv.act === act && !lv.bonus) h += tile(lv, i); });
+    h += '</div>';
+    const bi = CAMPAIGN.findIndex((lv) => lv.act === act && lv.bonus);
+    if (bi >= 0) h += `<div class="act-branch">${tile(CAMPAIGN[bi], bi)}</div>`;
+    h += '</div>';
   }
   $('camp-grid').innerHTML = h;
   renderLevelDetail();
@@ -138,9 +147,15 @@ function renderCampaign() {
 
 function renderLevelDetail() {
   const i = menu.level, lv = CAMPAIGN[i], un = campaignUnlocked(i), st = P.campaign[lv.id] || 0, muts = lv.muts || [];
-  let h = `<div class="kicker">SEKTOR ${i + 1}  ·  AKT ${ROMAN[lv.act - 1]}</div><h2>${lv.name.toUpperCase()}</h2><p class="md-desc">${lv.desc}</p>`;
+  if (lv.bonus && !un) {
+    $('camp-detail').innerHTML = `<div class="kicker">GEHEIMAKTE ${secLabel(lv)}  ·  AKT ${ROMAN[lv.act - 1]}</div><h2>???</h2>` +
+      `<p class="md-desc">Eine verschlüsselte Mission. Sie öffnet sich, sobald alle fünf Sektoren von Akt ${ROMAN[lv.act - 1]} mindestens zwei Sterne haben.</p>`;
+    return;
+  }
+  let h = `<div class="kicker">${lv.bonus ? 'GEHEIMAKTE' : 'SEKTOR'} ${secLabel(lv)}  ·  AKT ${ROMAN[lv.act - 1]}</div><h2>${lv.name.toUpperCase()}</h2><p class="md-desc">${lv.desc}</p>`;
   h += `<ul class="md-rules"><li><b>Ziel:</b> ${campaignGoal(lv)}</li>`;
   h += `<li><b>Arena:</b> ${MAPS[lv.map || 'grid'].name}</li>`;
+  if (lv.champ) h += '<li><b>Champion:</b> Ein verstärkter Gegner erscheint mitten im Loop</li>';
   if (lv.anom) h += `<li><b>Anomalie:</b> ${ANOMALIES[lv.anom].name} – ${ANOMALIES[lv.anom].desc.split(' · ')[0]}</li>`;
   if (lv.pool) h += `<li><b>Gegner:</b> ${lv.pool.map((k) => ENEMY_NAMES[k] || k).join(', ')}</li>`;
   const rw = UNLOCKS.find((u) => u.camp === lv.id);
@@ -150,7 +165,7 @@ function renderLevelDetail() {
   }
   h += '</ul>';
   if (muts.length) h += `<div class="chips">${muts.map((x) => mutChip(x, true, true)).join('')}</div>${mutDescs(muts)}`;
-  h += `<div class="md-best"><span class="stars">${starText(st)}</span><span class="star-rule">★ abschließen  ·  ★★ höchstens 2 Treffer  ·  ★★★ kein Treffer</span></div>`;
+  h += `<div class="md-best"><span class="stars">${starText(st)}</span><span class="star-rule">${starRule(lv)}</span></div>`;
   h += un ? '<button id="btn-level-start" class="btn big">STARTEN</button>' : `<div class="md-lock">Schließe zuerst Sektor ${i} ab</div>`;
   $('camp-detail').innerHTML = h;
 }
@@ -164,12 +179,33 @@ function openHangar() { show('screen-hangar'); renderHangar(); }
 
 function renderHangar() {
   $('hangar-grid').innerHTML = SHIP_ORDER.map((id) => {
-    const s = SHIPS[id], un = isUnlocked('ship', id), sel = P.ship === id;
-    return `<button class="ship-card${sel ? ' sel' : ''}${un ? '' : ' locked'}" data-ship="${id}" style="--c:${s.css}">` +
+    const s = SHIPS[id], un = isUnlocked('ship', id), sel = P.ship === id, ml = masteryLv(id), xp = (P.mastery && P.mastery[id]) || 0;
+    const pi = (P.paint && P.paint[id]) || 0, css = pi && PAINTS[pi] && ml >= PAINTS[pi].lv ? PAINTS[pi].css : s.css;
+    const nx = MASTERY_XP[ml], prev = MASTERY_XP[ml - 1] || 0, k = ml >= 10 ? 1 : (xp - prev) / (nx - prev);
+    const nextRw = masteryRewards(id).find(([l]) => l > ml);
+    let paints = '';
+    if (un) {
+      paints = '<span class="paints">' + PAINTS.map((p, j) => {
+        const ok = !p || ml >= p.lv, c = p ? p.css : s.css;
+        return `<i class="paint${pi === j ? ' on' : ''}${ok ? '' : ' locked'}" data-paint="${j}" data-ship="${id}" style="--pc:${c}" title="${p ? p.name + (ok ? '' : ' · ab Meisterschaft ' + p.lv) : 'STANDARD'}"></i>`;
+      }).join('') + '</span>';
+    }
+    return `<button class="ship-card${sel ? ' sel' : ''}${un ? '' : ' locked'}" data-ship="${id}" style="--c:${css}">` +
       `<span class="ship-art">${shipSvg(id)}</span><span class="ship-name">${s.name}</span><span class="ship-tag">${s.tag}</span>` +
       `<span class="ship-lines">${s.lines.map((l) => `<i>${l}</i>`).join('')}</span>` +
+      (un ? `<span class="mastery"><b>MEISTERSCHAFT ${ml}</b><span class="m-bar"><i style="transform:scaleX(${clamp(k, 0, 1).toFixed(3)})"></i></span>` +
+        `<em>${nextRw ? 'Stufe ' + nextRw[0] + ': ' + nextRw[1] : 'Alles gemeistert'}</em></span>${paints}` : '') +
       `<span class="ship-state">${sel ? 'AUSGEWÄHLT' : un ? 'AUSWÄHLEN' : unlockText('ship', id)}</span></button>`;
   }).join('');
+}
+function selectPaint(ship, j) {
+  const p = PAINTS[j];
+  if (p && masteryLv(ship) < p.lv) { Sfx.deny(); return; }
+  P.paint[ship] = j;
+  saveProfile();
+  if (G.demo && G.run) recomputeStats();
+  Sfx.pick();
+  renderHangar();
 }
 
 function selectShip(id) {
@@ -186,14 +222,58 @@ function openWorkshop() { show('screen-workshop'); renderWorkshop(); }
 
 function renderWorkshop() {
   $('ws-cores').textContent = fmt(P.cores);
-  $('ws-list').innerHTML = META.map((m) => {
-    const lv = metaLv(m.id), max = lv >= m.max, cost = max ? 0 : m.cost[lv], can = !max && P.cores >= cost;
-    let pips = '';
-    for (let i = 0; i < m.max; i++) pips += `<i class="${i < lv ? 'on' : ''}"></i>`;
-    return `<div class="ws-row${max ? ' max' : ''}"><div class="ws-info"><b>${m.name}</b><span>${m.desc}</span></div>` +
-      `<div class="ws-pips">${pips}</div>` +
-      `<button class="btn ws-buy" data-meta="${m.id}"${can ? '' : ' disabled'}>${max ? 'MAX' : cost + ' KERNE'}</button></div>`;
-  }).join('');
+  let h = '';
+  META_TIERS.forEach((t, ti) => {
+    const open = rankInfo(P.xp).rank >= t.rank;
+    h += `<div class="ws-tier${open ? '' : ' locked'}">${t.name}${open ? '' : '  ·  AB RANG ' + t.rank}</div>`;
+    for (const m of META) {
+      if (metaTier(m) !== ti) continue;
+      const lv = metaLv(m.id), max = lv >= m.max, cost = max ? 0 : m.cost[lv], can = open && !max && P.cores >= cost;
+      let pips = '';
+      for (let i = 0; i < m.max; i++) pips += `<i class="${i < lv ? 'on' : ''}"></i>`;
+      h += `<div class="ws-row${max ? ' max' : ''}${open ? '' : ' locked'}"><div class="ws-info"><b>${m.name}</b><span>${m.desc}</span></div>` +
+        `<div class="ws-pips">${pips}</div>` +
+        `<button class="btn ws-buy" data-meta="${m.id}"${can ? '' : ' disabled'}>${max ? 'MAX' : open ? cost + ' KERNE' : 'GESPERRT'}</button></div>`;
+    }
+  });
+  $('ws-list').innerHTML = h;
+}
+
+// ---------------------------------------------------------------- Kodex
+const codexUi = { tab: 'e' };
+function openCodex() { show('screen-codex'); renderCodex(); }
+function renderCodex() {
+  const t = codexUi.tab, c = P.codex;
+  for (const b of document.querySelectorAll('#codex-tabs button')) b.classList.toggle('on', b.dataset.tab === t);
+  let h = '', n = 0, tot = 0;
+  const entry = (known, art, name, sub, desc, css) =>
+    `<div class="cx${known ? '' : ' unknown'}" style="--c:${css || '#9fb6ff'}"><span class="cx-art">${known ? art : '?'}</span>` +
+    `<b>${known ? name : '???'}</b>${sub ? `<i>${known ? sub : ''}</i>` : ''}<span>${known ? desc : 'Noch nicht entdeckt.'}</span></div>`;
+  if (t === 'e') {
+    for (const id of CODEX_ENEMIES) {
+      const T = ETYPES[id], k = !!c.e[id]; tot++; if (k) n++;
+      h += entry(k, shapeSvg(T.shape, 1.1), ENEMY_NAMES[id], `${T.hp} Hülle · ${T.score} Punkte`, ENEMY_INFO[id], cssCol(T.col));
+    }
+  } else if (t === 'u') {
+    for (const u of UPGRADES) {
+      const k = !!c.u[u.id]; tot++; if (k) n++;
+      h += `<div class="cx up ${RARITY[u.rarity].cls}${k ? '' : ' unknown'}"><span class="cx-art">${k ? upgradeIcon(u) : '?'}</span><b>${k ? u.name : '???'}</b>` +
+        `<i>${RARITY[u.rarity].name}${k ? ' · max. ' + (u.max >= 99 ? '∞' : u.max) : ''}</i><span>${k ? u.desc : 'Noch nicht gewählt.'}</span></div>`;
+    }
+  } else if (t === 'v') {
+    for (const u of EVOS) {
+      const k = !!c.u[u.id]; tot++; if (k) n++;
+      h += `<div class="cx up r4${k ? '' : ' unknown'}"><span class="cx-art">${k ? upgradeIcon(u) : '?'}</span><b>${k ? u.name : '???'}</b>` +
+        `<i>${evoRecipe(u)}</i><span>${k ? u.desc : 'Rezept bekannt – kombiniere die Zutaten in einem Lauf.'}</span></div>`;
+    }
+  } else {
+    BOSS_NAMES.forEach((nm, i) => {
+      const k = !!c.b[String(i + 1)], L = BOSS_LOOKS[i]; tot++; if (k) n++;
+      h += entry(k, shapeSvg(L.shape, 1.3), nm, 'STUFE ' + (i + 1), BOSS_TITLES[i], cssCol(L.col));
+    });
+  }
+  $('codex-count').textContent = `${n} / ${tot}`;
+  $('codex-list').innerHTML = h;
 }
 
 // ---------------------------------------------------------------- Erfolge
@@ -212,7 +292,7 @@ function menuBack() {
   const s = ui.screen;
   if (s === 'screen-settings') closeSettings();
   else if (s === 'screen-hub') show('screen-title');
-  else if (s === 'screen-campaign' || s === 'screen-hangar' || s === 'screen-workshop' || s === 'screen-ach') openHub();
+  else if (s === 'screen-campaign' || s === 'screen-hangar' || s === 'screen-workshop' || s === 'screen-ach' || s === 'screen-codex') openHub();
 }
 function menuEnter() {
   const s = ui.screen;
@@ -222,6 +302,12 @@ function menuEnter() {
 }
 
 function bindMenus() {
+  if (!P.tutDone && P.stats.runs === 0) menu.mode = 'tutorial';
+  $('btn-codex').addEventListener('click', openCodex);
+  $('codex-tabs').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-tab]');
+    if (b) { codexUi.tab = b.dataset.tab; Sfx.pick(); renderCodex(); }
+  });
   if (P.lastMaps && typeof P.lastMaps === 'object') Object.assign(menu.map, P.lastMaps);
   $('btn-start').addEventListener('click', openHub);
   $('btn-hub-back').addEventListener('click', menuBack);
@@ -263,6 +349,8 @@ function bindMenus() {
   });
   $('camp-detail').addEventListener('click', (ev) => { if (ev.target.closest('#btn-level-start')) campaignStart(); });
   $('hangar-grid').addEventListener('click', (ev) => {
+    const pt = ev.target.closest('[data-paint]');
+    if (pt) { selectPaint(pt.dataset.ship, +pt.dataset.paint); return; }
     const c = ev.target.closest('.ship-card');
     if (c) selectShip(c.dataset.ship);
   });

@@ -28,6 +28,11 @@ const SHAPES = {
   shipChronos: [1.25, 0, 0.1, 0.8, -1.0, 0.4, -0.45, 0, -1.0, -0.4, 0.1, -0.8],
   shipNexus: [1.2, 0, 0.3, 0.45, 0.1, 1.05, -0.8, 0.55, -0.5, 0, -0.8, -0.55, 0.1, -1.05, 0.3, -0.45],
   phaser: star(3, 1.35, 0.45),
+  guard: [1.15, 0, 0.75, 0.95, -0.35, 1.0, -0.9, 0.45, -0.9, -0.45, -0.35, -1.0, 0.75, -0.95],
+  mender: [1.1, 0.35, 1.1, -0.35, 0.35, -0.35, 0.35, -1.1, -0.35, -1.1, -0.35, -0.35, -1.1, -0.35, -1.1, 0.35, -0.35, 0.35, -0.35, 1.1, 0.35, 1.1, 0.35, 0.35],
+  layer: [1.2, 0, 0.1, 0.55, -0.95, 1.0, -0.6, 0, -0.95, -1.0, 0.1, -0.55],
+  emine: star(4, 1.2, 0.5),
+  reflector: star(6, 1.2, 0.95),
   hive: star(6, 1.15, 0.86, Math.PI / 6),
   lancer: [1.5, 0, 0.2, 0.5, -1.0, 0.7, -0.55, 0, -1.0, -0.7, 0.2, -0.5],
   diamond: [0, -1.2, 0.8, 0, 0, 1.2, -0.8, 0],
@@ -55,10 +60,16 @@ const ETYPES = {
   well:     { r: 28, hp: 300,  speed: 16,  score: 500,  shards: 10, cost: 10,  min: 7,  w: 0.6, col: [0.85, 0.25, 1.0], shape: SHAPES.ring },
   phaser:   { r: 15, hp: 34,   speed: 140, score: 175,  shards: 2,  cost: 3,   min: 5,  w: 1.8, col: [0.35, 0.95, 1.0], shape: SHAPES.phaser },
   hive:     { r: 30, hp: 190,  speed: 42,  score: 350,  shards: 6,  cost: 7,   min: 7,  w: 0.9, col: [1.0, 0.62, 0.15], shape: SHAPES.hive },
+  guard:    { r: 19, hp: 64,   speed: 92,  score: 175,  shards: 3,  cost: 3.5, min: 6,  w: 1.5, col: [0.55, 0.75, 1.0], shape: SHAPES.guard },
+  mender:   { r: 16, hp: 30,   speed: 112, score: 150,  shards: 2,  cost: 3,   min: 6,  w: 1.2, col: [0.35, 1.0, 0.72], shape: SHAPES.mender },
+  layer:    { r: 17, hp: 36,   speed: 135, score: 150,  shards: 2,  cost: 3,   min: 5,  w: 1.4, col: [1.0, 0.42, 0.3],  shape: SHAPES.layer },
+  emine:    { r: 10, hp: 10,   speed: 0,   score: 10,   shards: 0,  cost: 0.5, min: 99, w: 0,   col: [1.0, 0.3, 0.22],  shape: SHAPES.emine },
+  reflector:{ r: 18, hp: 52,   speed: 100, score: 200,  shards: 3,  cost: 4,   min: 8,  w: 1.1, col: [0.85, 0.85, 1.1], shape: SHAPES.reflector },
   boss:     { r: 62, hp: 3000, speed: 78,  score: 5000, shards: 40, cost: 30,  min: 99, w: 0,   col: [1.0, 0.15, 0.55], shape: SHAPES.boss },
 };
 for (const k in ETYPES) ETYPES[k].name = k;
-const BOSS_NAMES = ['WÄCHTER', 'ARCHITEKT', 'PARADOXON', 'SINGULARITÄT', 'OMEGA'];
+const BOSS_NAMES = ['WÄCHTER', 'ARCHITEKT', 'PARADOXON', 'SINGULARITÄT', 'OMEGA', 'ZEITHERZ'];
+const BOSS_TITLES = ['HÜTER DER ERSTEN SCHLEIFE', 'ERBAUER DER MUSTER', 'DAS WIDERSPRUCHSWESEN', 'KRÜMMERIN DES RAUMS', 'DAS ENDE DER ZEIT', 'DER URSPRUNG ALLER SCHLEIFEN'];
 const bossName = (L) => (L <= BOSS_NAMES.length ? BOSS_NAMES[Math.max(0, L - 1)] : 'OMEGA ' + (L - BOSS_NAMES.length + 1));
 /** Jeder Boss hat eigene Farbe und Silhouette. */
 const BOSS_LOOKS = [
@@ -67,6 +78,7 @@ const BOSS_LOOKS = [
   { col: [0.7, 0.3, 1.0], shape: star(10, 1.0, 0.82) },
   { col: [0.2, 0.85, 1.0], shape: star(5, 1.12, 0.52, Math.PI / 10) },
   { col: [1.0, 0.88, 0.45], shape: star(12, 1.0, 0.86) },
+  { col: [0.4, 1.0, 0.6], shape: star(7, 1.08, 0.6, Math.PI / 7) },
 ];
 
 /** Globaler Spielzustand. */
@@ -136,6 +148,15 @@ function recomputeStats() {
   S.twin = u('twin');
   S.echoCap = Math.max(1, S.echoCap);
   if (G.anom === 'haste') { S.speed *= 1.2; S.fireRate *= 1.25; }
+  // Evolutionen
+  S.evo = {};
+  if (typeof EVOS !== 'undefined') for (const e of EVOS) if (u(e.id)) S.evo[e.id.slice(2)] = 1;
+  if (S.evo.rail) { S.pierce += 3; S.bulletSpeed *= 1.3; S.dmg *= 1.4; }
+  if (S.evo.army) S.echoPow *= 1.6;
+  if (S.evo.blades) S.orbit += 3;
+  // Schiffs-Meisterschaft
+  S.shipCol = ship.col;
+  if (run && !G.demo && typeof applyMastery === 'function') applyMastery(S, run.ship);
 }
 
 /** Kombo-Kern: Schadensbonus aus dem Multiplikator. */
@@ -168,8 +189,10 @@ function newRun() {
     invuln: 0, hurtT: 0, dashT: 0, dashCd: 0, dashDx: 1, dashDy: 0, fireCd: 0.3,
     shieldUp: false, shieldT: 0, orbitA: 0, resonant: false, botAng: -Math.PI / 2,
     trail: [], trailAcc: 0, thrust: 0,
-    droneA: 0, droneCd: [], regenT: 0, laserT: 1.2, portCd: 0,
+    droneA: 0, droneCd: [], regenT: 0, laserT: 1.2, portCd: 0, odT: 0, dLasT: 1.5,
   };
+  G.dashes = 0; G.novas = 0; G.shardsGot = 0; G.streak = 0; G.streakT = 0; G.streakBest = 0; G.champKills = 0;
+  G.banned = {}; G.held = -1; G.core = null;
 }
 
 // ---------------------------------------------------------------- Räumlicher Hash
@@ -271,7 +294,11 @@ function updatePlayer(dt) {
     else { p.dashDx = Math.cos(p.ang); p.dashDy = Math.sin(p.ang); }
     p.dashT = 0.17; p.dashCd = S.dashCd; p.invuln = Math.max(p.invuln, 0.32);
     Sfx.dash();
-    if (S.mine > 0) {                          // Zeitmine am Startpunkt des Dashs
+    G.dashes++;
+    if (S.evo.overdrive) { p.odT = 2.5; ring(p.x, p.y, 20, 140, 0.35, COL.fire, 2.5); }
+    if (S.evo.implode && G.holes.length < 6) {         // Implosionsmine
+      G.holes.push({ x: p.x, y: p.y, r: 230, t: 1.3, dead: false, mini: true });
+    } else if (S.mine > 0) {                   // Zeitmine am Startpunkt des Dashs
       G.blasts.push({ x: p.x, y: p.y, r: 95 + 15 * S.mine, dmg: S.dmg * (4 + 3 * S.mine), t: 0.7, max: 0.7, hurt: false, mine: true, col: COL.nova, dead: false });
     }
     ring(p.x, p.y, 10, 95, 0.3, COL.pbullet, 2.5);
@@ -316,8 +343,9 @@ function updatePlayer(dt) {
     }
   } else p.regenT = 0;
 
-  // Feuern (+ Resonanz in Echo-Nähe)
+  // Feuern (+ Resonanz in Echo-Nähe, Overdrive nach dem Dash)
   let rate = S.fireRate;
+  if (p.odT > 0) { p.odT -= dt; rate *= 1.8; }
   p.resonant = false;
   if (S.resonance > 0) {
     for (const e of G.echoes) {
@@ -351,6 +379,17 @@ function updatePlayer(dt) {
       }
       Sfx.eshoot();
     }
+    if (S.evo.swarm && !S.pacifist) {          // Laserschwarm
+      p.dLasT -= dt;
+      if (p.dLasT <= 0) {
+        p.dLasT = 1.5;
+        for (let k = 0; k < S.drones; k++) {
+          const a = p.droneA + (k * TAU) / S.drones, x = p.x + Math.cos(a) * 48, y = p.y + Math.sin(a) * 48;
+          const t = nearestEnemy(x, y, 900, null);
+          if (t) fireLaser(x, y, Math.atan2(t.y - y, t.x - x), S.dmg * 4 * comboMul());
+        }
+      }
+    }
   }
 
   // Phasenlaser
@@ -378,9 +417,10 @@ function updatePlayer(dt) {
   // Orbitalklingen
   if (S.orbit > 0) {
     p.orbitA += dt * 3.6;
-    const dps = S.dmg * 7 * dt;
+    const dps = S.dmg * 7 * dt * (S.evo.blades ? 2 : 1), orR = S.evo.blades ? 100 + 45 * Math.sin(G.realT * 2.2) : 84;
+    p.orbR = orR;
     for (let k = 0; k < S.orbit; k++) {
-      const a = p.orbitA + (k * TAU) / S.orbit, bx = p.x + Math.cos(a) * 84, by = p.y + Math.sin(a) * 84;
+      const a = p.orbitA + (k * TAU) / S.orbit, bx = p.x + Math.cos(a) * orR, by = p.y + Math.sin(a) * orR;
       forNear(bx, by, 16, (e) => {
         const dx = e.x - bx, dy = e.y - by, rr = e.r + 16;
         if (dx * dx + dy * dy < rr * rr) {
@@ -460,7 +500,8 @@ function hurtPlayer() {
   const p = G.player;
   if (p.invuln > 0 || !p.alive || G.state !== 'playing' || G.demo) return;
   if (p.shieldUp) {
-    p.shieldUp = false; p.shieldT = 18 / S.shield; p.invuln = 0.9;
+    p.shieldUp = false; p.shieldT = (18 / S.shield) * (S.evo.phoenix ? 0.5 : 1); p.invuln = 0.9;
+    if (S.evo.phoenix) novaAt(p.x, p.y, 0.7);
     ring(p.x, p.y, 20, 280, 0.4, COL.pbullet, 4);
     Particles.burst(p.x, p.y, 40, COL.pbullet, 100, 520, 0.25, 0.7, 2.2);
     knockback(p.x, p.y, 280, 560); clearEBullets(p.x, p.y, 240);
@@ -527,8 +568,16 @@ function novaAt(x, y, scale) {
 
 function castNova() {
   const p = G.player, k0 = G.kills;
-  G.nova = 0;
+  G.nova = S.evo.super ? 0.3 : 0;
+  G.novas++;
   novaAt(p.x, p.y, 1);
+  if (S.evo.super) {                         // Supernova: drei Nachbeben
+    for (let k = 0; k < 3; k++) {
+      const a = rand(TAU), d = 120 + k * 90;
+      G.blasts.push({ x: clamp(p.x + Math.cos(a) * d, 40, ARENA_W - 40), y: clamp(p.y + Math.sin(a) * d, 40, ARENA_H - 40), r: 240,
+        dmg: S.dmg * 12 + 20 * G.eff, t: 0.45 + k * 0.35, hurt: false, col: k % 2 ? COL.magenta : COL.nova, dead: false });
+    }
+  }
   if (S.echoNova > 0) for (const e of G.echoes) novaAt(e.x, e.y, 0.55);
   if (S.hole > 0 && G.holes.length < 4) G.holes.push({ x: p.x, y: p.y, r: 300, t: 2.4 + 0.8 * S.hole, dead: false });
   buzz(35);
@@ -618,13 +667,13 @@ function updateBullets(dt) {
     const b = bs[i];
     b.life -= dt;
     if (b.life <= 0) { b.dead = true; continue; }
-    if (S.homing > 0) {
+    if (S.homing > 0 || (b.echo && S.evo.army)) {
       b.seek -= dt;
       if (b.seek <= 0) { b.seek = 0.12; b.tgt = nearestEnemy(b.x, b.y, 250, b.last); }
       const t = b.tgt;
       if (t && !t.dead) {
         const sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy), cur = Math.atan2(b.vy, b.vx);
-        const lim = S.homing * 3.4 * dt, na = cur + clamp(angDiff(cur, Math.atan2(t.y - b.y, t.x - b.x)), -lim, lim);
+        const lim = Math.max(1, S.homing) * 3.4 * dt, na = cur + clamp(angDiff(cur, Math.atan2(t.y - b.y, t.x - b.x)), -lim, lim);
         b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
       }
     }
@@ -672,9 +721,21 @@ function updateBullets(dt) {
 }
 
 function bulletHit(b, e) {
+  if (e.type === 'guard' && Math.abs(angDiff(e.rot, Math.atan2(b.y - e.y, b.x - e.x))) < 1.05) {      // Schildträger: Front blockt
+    b.dead = true; e.flash = 0.35;
+    Particles.burst(b.x, b.y, 4, e.col, 60, 260, 0.1, 0.3, 1.5);
+    if (Math.random() < 0.2) Sfx.hit();
+    return;
+  }
   let dmg = b.dmg, crit = false;
-  if (S.crit > 0 && Math.random() < S.crit) { dmg *= 2.5; crit = true; }
+  if ((S.crit > 0 && Math.random() < S.crit) || (!b.echo && G.player.odT > 0)) { dmg *= 2.5; crit = true; }
   hitEnemy(e, dmg, b.x, b.y, crit, false);
+  if (crit && S.evo.storm && !e.dead) chainFrom(e, dmg * 0.6, 3 + S.chain);
+  if (e.type === 'reflector' && !e.dead && ++e.refl % 4 === 0) {        // Spiegel: wirft Geschosse zurück
+    const a = Math.atan2(G.player.y - e.y, G.player.x - e.x);
+    for (let k = -1; k <= 1; k++) spawnEBullet(e.x, e.y, a + k * 0.16, 260 * G.spdMul);
+    ring(e.x, e.y, e.r, e.r * 2.4, 0.25, e.col, 2);
+  }
   if (S.cryo > 0 && Math.random() < 0.15 * S.cryo) e.chill = 2;
   if (S.knock > 0 && e.type !== 'boss' && !e.dead) {
     const sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy) + 1, f = 75 * S.knock * (15 / e.r);
@@ -711,7 +772,7 @@ function chainFrom(src, dmg, count) {
     const t = cands[bi];
     cands[bi] = null;
     if (G.beams.length < 60) G.beams.push({ x0: from.x, y0: from.y, x1: t.x, y1: t.y, life: 0.14, max: 0.14, dead: false });
-    hitEnemy(t, dmg, t.x, t.y, false, true);
+    hitEnemy(t, S.evo.storm ? dmg * 1.5 : dmg, t.x, t.y, false, true);
     from = t; any = true;
   }
   if (any) Sfx.zap();
@@ -745,9 +806,11 @@ function spawnEnemy(type, x, y) {
     x: clamp(x, T.r + 6, ARENA_W - T.r - 6), y: clamp(y, T.r + 6, ARENA_H - T.r - 6), vx: 0, vy: 0,
     rot: rand(TAU), spin: rand(-2.2, 2.2), t: rand(10), phase: rand(TAU), dir: Math.random() < 0.5 ? 1 : -1,
     spawnT: 0.7, flash: 0, state: 0, st: rand(0.6, 1.6), cd: rand(1.2, 2.6), ax: 1, ay: 0,
-    dieAt: 0, selfDet: false, dead: false,
+    dieAt: 0, selfDet: false, dead: false, refl: 0,
+    ct: !!G.core && type !== 'boss' && type !== 'emine' && Math.random() < 0.4,
   };
   G.enemies.push(e);
+  if (!G.demo && P.codex && !P.codex.e[type]) codexMark('e', type);
   return e;
 }
 
@@ -770,6 +833,7 @@ function spawnBoss() {
   G.boss = e; G.bossSpawned = true;
   ring(e.x, e.y, 600, 60, 1.4, e.col, 5);
   Grid.blast(e.x, e.y, -30, 700);
+  if (!G.demo && typeof bossIntro === 'function') bossIntro(e);
 }
 
 function steer(e, tx, ty, rate, dt) {
@@ -805,7 +869,8 @@ function updateEnemies(dt) {
     e.t += dt;
     if (e.flash > 0) e.flash -= dt * 7;
     if (e.spawnT > 0) { e.spawnT -= dt; e.rot += e.spin * dt; continue; }
-    let dx = p.x - e.x, dy = p.y - e.y;
+    const tg = e.ct && G.core ? G.core : p;
+    let dx = tg.x - e.x, dy = tg.y - e.y;
     const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
     dx /= d; dy /= d;
     let slow = S.warp > 0 && d < 240 ? 1 - 0.25 * S.warp : 1;
@@ -963,12 +1028,68 @@ function updateEnemies(dt) {
           e.flash = 0.8; ring(e.x, e.y, e.r, e.r * 2.4, 0.3, e.col, 2);
         }
         break;
+      case 'guard':                              // Schildträger: dreht die Front langsam zu dir
+        steer(e, dx * sp, dy * sp, 2.2, dt);
+        e.rot += clamp(angDiff(e.rot, Math.atan2(dy, dx)), -2.1 * dt, 2.1 * dt);
+        break;
+      case 'mender': {                           // Heiler: hält Abstand und repariert andere Gegner
+        let tx, ty;
+        if (d > 520) { tx = dx; ty = dy; } else if (d < 360) { tx = -dx; ty = -dy; } else { tx = -dy * e.dir; ty = dx * e.dir; }
+        steer(e, tx * sp, ty * sp, 3, dt); e.rot += 1.5 * dt;
+        e.cd -= dt;
+        if (e.cd <= 0) {
+          e.cd = rand(2.3, 2.9);
+          let n2 = 0;
+          forNear(e.x, e.y, 230, (o) => {
+            if (o === e || o.type === 'boss' || o.hp >= o.maxHp || n2 >= 5) return false;
+            const ox = o.x - e.x, oy = o.y - e.y;
+            if (ox * ox + oy * oy > 230 * 230) return false;
+            o.hp = Math.min(o.maxHp, o.hp + o.maxHp * 0.3); n2++;
+            if (G.beams.length < 60) G.beams.push({ x0: e.x, y0: e.y, x1: o.x, y1: o.y, life: 0.3, max: 0.3, dead: false, col: e.col });
+            return false;
+          });
+          if (n2) { ring(e.x, e.y, 20, 230, 0.4, e.col, 2); e.flash = 0.6; }
+        }
+        break;
+      }
+      case 'layer': {                            // Minenleger: kreist um dich und legt Minen
+        const want = d > 520 ? 1 : d < 300 ? -1 : 0;
+        steer(e, (dx * want - dy * e.dir) * sp, (dy * want + dx * e.dir) * sp, 2.5, dt);
+        e.rot = Math.atan2(e.vy, e.vx);
+        e.cd -= dt;
+        if (e.cd <= 0) {
+          e.cd = rand(1.9, 2.6);
+          let mines = 0;
+          for (const o of es) if (o.type === 'emine' && !o.dead) mines++;
+          if (mines < 14) { const m = spawnEnemy('emine', e.x, e.y); if (m) { m.spawnT = 0.3; m.st = 14; } }
+        }
+        break;
+      }
+      case 'emine':                              // Mine: zündet, wenn du zu nah kommst
+        steer(e, 0, 0, 4, dt); sep = false; e.rot += dt;
+        e.st -= dt;
+        if (e.st <= 0) { killEnemy(e, true); break; }
+        if (e.state === 0 && d < 90) { e.state = 1; e.cd = 0.5; Sfx.fuse(); }
+        if (e.state === 1) {
+          e.cd -= dt; e.flash = 0.5 + 0.5 * Math.sin(e.t * 50);
+          if (e.cd <= 0) {
+            e.dead = true;
+            G.blasts.push({ x: e.x, y: e.y, r: 105, dmg: 40 * G.hpMul, t: 0, hurt: true, col: e.col, dead: false });
+          }
+        }
+        break;
+      case 'reflector': {
+        const w = Math.sin(e.t * 2 + e.phase) * 0.6, tx = dx - dy * w, ty = dy + dx * w, l = Math.sqrt(tx * tx + ty * ty);
+        steer(e, (tx / l) * sp, (ty / l) * sp, 3, dt); e.rot += 1.2 * dt;
+        break;
+      }
       case 'boss':
         updateBoss(e, dt, dx, dy);
         sep = false; bouncy = e.atk === 'charge';
         break;
     }
     if (e.dead) continue;
+    if (e.champ) champUpdate(e, dt, dx, dy);
 
     if (sep) { _sepE = e; forNear(e.x, e.y, e.r, sepFn); }
     e.x += e.vx * dt * slow; e.y += e.vy * dt * slow;
@@ -978,6 +1099,7 @@ function updateEnemies(dt) {
     if (e.y < r) { e.y = r; if (e.vy < 0) { if (bouncy) { e.vy = -e.vy; wallHit(e); } else e.vy = 0; } }
     else if (e.y > ARENA_H - r) { e.y = ARENA_H - r; if (e.vy > 0) { if (bouncy) { e.vy = -e.vy; wallHit(e); } else e.vy = 0; } }
     if (hasObs && obsCollide(e, r, bouncy) && bouncy) wallHit(e);
+    if (e.ct && G.core && coreTouch(e)) continue;
 
     if (p.alive && p.invuln <= 0) {
       const ax = p.x - e.x, ay = p.y - e.y, rr = e.r * 0.85 + 9;
@@ -1000,12 +1122,14 @@ function bossSeq(L) {
 
 function bossNext(e) {
   const seq = bossSeq(e.lvl);
+  if (e.ph3) seq.splice(1, 0, 'walls');
   e.atkI = (e.atkI + 1) % seq.length;
   const a = seq[e.atkI];
   if (a === 'spiral') { e.atk = a; e.st = 3.2; e.cd = 0; e.spinDir = Math.random() < 0.5 ? 1 : -1; }
   else if (a === 'rings') { e.atk = a; e.st = 2.7; e.cd = 0.25; }
   else if (a === 'aim') { e.atk = a; e.st = e.ph2 ? 0.65 : 0.85; Sfx.bossWarn(); }
   else if (a === 'fan') { e.atk = a; e.st = 1.7; e.cd = 0.25; }
+  else if (a === 'walls') { e.atk = a; e.st = 3.3; e.cd = 0.3; Sfx.bossWarn(); }
   else if (a === 'sweep') {
     const p = G.player;
     e.atk = a; e.st = 3.8; e.swOn = false; e.swDir = Math.random() < 0.5 ? 1 : -1;
@@ -1029,6 +1153,13 @@ function updateBoss(e, dt, dx, dy) {
     ring(e.x, e.y, 40, 720, 0.7, e.col, 6);
     shake(0.7); Grid.blast(e.x, e.y, 32, 720); Sfx.bossWarn(); G.flashR = 0.25;
     banner('PHASE 2', e.bname + ' IST ENTFESSELT', 'warn');
+  }
+  if (!e.ph3 && e.hp < e.maxHp * 0.22) {      // letzte Phase: Kugelwände von den Rändern
+    e.ph3 = true; e.atkI = -1;
+    ring(e.x, e.y, 40, 900, 0.8, COL.white, 7);
+    shake(0.9); Grid.blast(e.x, e.y, 40, 900); Sfx.bossWarn(); G.flashR = 0.3; slowmo(0.3, 0.6);
+    banner('LETZTE PHASE', e.bname + ' KÄMPFT UMS ÜBERLEBEN', 'warn');
+    if (!G.demo) Sfx.music(4);
   }
   const bs = e.ph2 ? 1.22 : 1;
   e.rot += dt * (e.ph2 ? 1.3 : 0.6);
@@ -1079,6 +1210,12 @@ function updateBoss(e, dt, dx, dy) {
       if (e.st <= 0) bossRest(e);
       break;
     }
+    case 'walls':
+      steer(e, dx * sp * 0.35, dy * sp * 0.35, 2, dt);
+      e.cd -= dt;
+      if (e.cd <= 0) { e.cd = 1.1 / bs; bossWall(); }
+      if (e.st <= 0) bossRest(e);
+      break;
     case 'rings':
       steer(e, dx * sp * 0.5, dy * sp * 0.5, 2, dt);
       e.cd -= dt;
@@ -1114,8 +1251,23 @@ function updateBoss(e, dt, dx, dy) {
   }
 }
 
+/** Kugelwand vom Arenarand – mit einer Lücke in deiner Nähe. */
+function bossWall() {
+  const p = G.player, side = randInt(0, 3), horiz = side < 2, len = horiz ? ARENA_H : ARENA_W;
+  const gc = clamp((horiz ? p.y : p.x) + rand(-240, 240), 150, len - 150);
+  for (let s = 26; s < len; s += 46) {
+    if (Math.abs(s - gc) < 110) continue;
+    if (side === 0) spawnEBullet(8, s, 0, 235);
+    else if (side === 1) spawnEBullet(ARENA_W - 8, s, Math.PI, 235);
+    else if (side === 2) spawnEBullet(s, 8, Math.PI / 2, 235);
+    else spawnEBullet(s, ARENA_H - 8, -Math.PI / 2, 235);
+  }
+  Sfx.bossShot(); shake(0.15);
+}
+
 function hitEnemy(e, dmg, x, y, crit, silent) {
   if (e.dead) return;
+  if (e.chill > 0 && S.evo.frost) dmg *= 1.5;
   e.hp -= dmg;
   e.flash = 1;
   if (!silent) {
@@ -1157,6 +1309,14 @@ function killEnemy(e, noReward) {
       }
     }
     popup(e.x, e.y - 8, Math.floor(pts), c, clamp(11 + Math.log10(pts + 1) * 2.2, 12, 26));
+    if (S.evo.frost && e.chill > 0 && e.type !== 'boss' && G.bullets.length < MAX_BULLETS - 20) {      // Frostbruch
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU + e.rot;
+        G.bullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, life: 0.5, dmg: S.dmg * 0.8, pierce: 1, bounce: 0,
+          echo: true, col: COL.cryo, last: e, tgt: null, seek: 1, dead: false });
+      }
+    }
+    if (typeof onKillFx === 'function') onKillFx(e);
     if (muts.unstable && e.type !== 'boss' && e.type !== 'bomber' && G.blasts.length < 140) {
       G.blasts.push({ x: e.x, y: e.y, r: 80, dmg: 26 * G.hpMul, t: 0.4, max: 0.4, hurt: true, col: COL.fire, dead: false });
     }
@@ -1190,7 +1350,7 @@ function killEnemy(e, noReward) {
       G.boss = null; G.bossEndT = 2.4;
       if (!noReward) {
         G.bossKills++;
-        ['boss1', 'boss2', 'boss3', 'boss4', 'boss5'].forEach((id, i) => { if (e.lvl >= i + 1) award(id); });
+        ['boss1', 'boss2', 'boss3', 'boss4', 'boss5', 'boss6'].forEach((id, i) => { if (e.lvl >= i + 1) award(id); });
         if (G.bossHits === 0) award('nohit_boss');
         if (G.run && G.run.mode === 'bossrush' && G.bossKills >= 3) award('rush3');
       }
@@ -1271,6 +1431,7 @@ function collect(k) {
     return;
   }
   G.mult++; if (G.mult > G.maxMult) G.maxMult = G.mult;
+  G.shardsGot++;
   if (G.mult >= 500) award('mult500');
   G.xp += S.xpGain;
   G.nova = Math.min(1, G.nova + 0.0015 * S.novaRate);
@@ -1384,7 +1545,7 @@ function autoAim(dt) {
   let near = null, nd = 1e9;
   for (const e of G.enemies) {
     if (e.dead || e.spawnT > 0) continue;
-    const dx = e.x - p.x, dy = e.y - p.y, d = Math.sqrt(dx * dx + dy * dy) - e.r, pri = e.type === 'boss' ? d * 0.45 : d;
+    const dx = e.x - p.x, dy = e.y - p.y, d = Math.sqrt(dx * dx + dy * dy) - e.r, pri = e.type === 'boss' || e.champ ? d * 0.45 : d;
     if (pri < nd) { nd = pri; near = e; }
   }
   if (near) {
@@ -1503,8 +1664,24 @@ function drawEnemy(e) {
     R.ring(e.x, e.y, s * 1.75, 1.1, 1.0, 0.8, 0.25, 0.45, 22);
   }
   if (e.chill > 0) R.ring(e.x, e.y, s * 1.4, 1.3, COL.cryo[0], COL.cryo[1], COL.cryo[2], 0.55, 16);
+  if (e.ct && G.core) R.dot(e.x, e.y, 3, 1.6, 0.4, 0.4, 0.9);
 
   switch (e.type) {
+    case 'guard':
+      for (let k = -3; k < 3; k++) {
+        const a0 = e.rot + k * 0.35, a1 = a0 + 0.35, rr = s * 1.45;
+        R.line(e.x + Math.cos(a0) * rr, e.y + Math.sin(a0) * rr, e.x + Math.cos(a1) * rr, e.y + Math.sin(a1) * rr, 2.8, 0.75, 1.15, 1.9, 0.95);
+      }
+      break;
+    case 'mender':
+      if (e.cd < 0.7) R.ring(e.x, e.y, 230 * (1 - e.cd / 0.7), 1.2, c[0], c[1], c[2], 0.35, 36);
+      break;
+    case 'emine':
+      R.ring(e.x, e.y, e.state ? 105 : 90, 1, c[0], c[1], c[2], e.state ? 0.55 : 0.12, 28);
+      break;
+    case 'reflector':
+      R.ring(e.x, e.y, s * 1.3, 1.1, 1.2, 1.2, 1.6, 0.3 + 0.12 * (e.refl % 4), 24);
+      break;
     case 'lancer':
       if (e.state === 1) {
         const k = 1 - e.st / 0.95, locked = e.st <= 0.3, L = rayLen(e.x, e.y, e.ax, e.ay, 1900);
@@ -1624,7 +1801,7 @@ function drawPlayer() {
   const a = p.hurtT > 0 && ((G.realT * 18) | 0) % 2 ? 0.3 : 1;
   const ca = Math.cos(p.ang), sa = Math.sin(p.ang);
   drawTrail(p.trail, COL.pbullet, 0.6 * a, 3);
-  const sc = S.ship.col;
+  const sc = S.shipCol || S.ship.col;
   R.poly(S.ship.shape, p.x, p.y, p.ang, 15, 2.2, sc[0], sc[1], sc[2], a);
   R.polyFill(S.ship.shape, p.x, p.y, p.ang, 15, sc[0] * 0.5, sc[1] * 0.5, sc[2] * 0.5, 0.2 * a);
   if (p.dashT > 0 && S.dashDmg > 0) R.ring(p.x, p.y, 38, 2, 1, 0.35, 0.85, 0.8, 22);
