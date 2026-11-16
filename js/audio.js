@@ -4,7 +4,7 @@
    dessen Ebenen mit der Spielintensität zugeschaltet werden. Keine Audiodateien. */
 const Sfx = (() => {
   let ctx = null, master, sfx, mfilter, musicOut, duck, delayIn, noiseBuf;
-  let muted = false, quiet = false, intensity = 0, nextT = 0, step = 0;
+  let muted = false, quiet = false, volM = 1, volS = 1, intensity = 0, nextT = 0, step = 0;
   let shardN = 0, shardT = -9, beatA = -9, beatB = -9;
   const last = {};
   const BPM = 124, ST = 60 / BPM / 4;
@@ -39,8 +39,8 @@ const Sfx = (() => {
     comp.threshold.value = -16; comp.knee.value = 18; comp.ratio.value = 5;
     comp.attack.value = 0.004; comp.release.value = 0.18;
     master.connect(comp); comp.connect(ctx.destination);
-    sfx = ctx.createGain(); sfx.gain.value = 0.75; sfx.connect(master);
-    musicOut = ctx.createGain(); musicOut.gain.value = 0.62; musicOut.connect(master);
+    sfx = ctx.createGain(); sfx.gain.value = 0.75 * volS; sfx.connect(master);
+    musicOut = ctx.createGain(); musicOut.gain.value = 0.62 * volM; musicOut.connect(master);
     mfilter = ctx.createBiquadFilter(); mfilter.type = 'lowpass'; mfilter.frequency.value = 18000; mfilter.Q.value = 0.5;
     mfilter.connect(musicOut);
     duck = ctx.createGain(); duck.connect(mfilter);
@@ -196,6 +196,11 @@ const Sfx = (() => {
     music(level) { intensity = level; },
     muffle(on) { if (ctx) mfilter.frequency.setTargetAtTime(on ? 520 : 18000, ctx.currentTime, 0.12); },
     setQuiet(v) { quiet = v; },
+    /** Lautstärke von Musik und Effekten (0 … 1). */
+    setVolume(m, s) {
+      volM = m; volS = s;
+      if (ctx) { musicOut.gain.setTargetAtTime(0.62 * m, ctx.currentTime, 0.03); sfx.gain.setTargetAtTime(0.75 * s, ctx.currentTime, 0.03); }
+    },
     setMuted(v) { muted = v; if (ctx) master.gain.setTargetAtTime(v ? 0 : 0.85, ctx.currentTime, 0.02); },
     isMuted() { return muted; },
     state() { return ctx ? ctx.state : 'none'; },

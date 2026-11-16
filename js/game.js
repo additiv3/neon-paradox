@@ -63,15 +63,19 @@ const mmss = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padSta
 
 // ---------------------------------------------------------------- Lauf-Konfiguration je Modus
 function buildRun(cfg) {
-  const run = { mode: cfg.mode, ship: P.ship, level: null, levelIdx: -1, muts: {}, mutList: [], scoreMul: 1, start: null, dailyKey: null };
+  const run = { mode: cfg.mode, ship: P.ship, level: null, levelIdx: -1, muts: {}, mutList: [], scoreMul: 1, start: null, dailyKey: null, map: 'grid' };
   let list = cfg.muts || [];
   if (cfg.mode === 'campaign') {
     run.levelIdx = cfg.level; run.level = CAMPAIGN[cfg.level];
     list = run.level.muts || []; run.start = run.level.start || null;
+    run.map = run.level.map || 'grid';
   } else if (cfg.mode === 'daily') {
     const d = dailyInfo();
-    list = d.muts; run.start = d.start; run.dailyKey = d.key;
-  }
+    list = d.muts; run.start = d.start; run.dailyKey = d.key; run.map = d.map;
+  } else if (cfg.map === 'random') {
+    const open = MAP_ORDER.filter((id) => isUnlocked('map', id));
+    run.map = pick(open);
+  } else if (cfg.map && MAPS[cfg.map]) run.map = cfg.map;
   for (const id of list) {
     if (!MUTATORS[id] || run.muts[id]) continue;
     run.muts[id] = true; run.mutList.push(id); run.scoreMul *= 1 + MUTATORS[id].bonus;
@@ -118,9 +122,13 @@ function setLoopParams(n) {
   G.bossLoop = isBossLoop(n);
   G.bossLv = Math.max(1, bossLevelFor(n));
   G.eff = eff;
+  G.anom = rollAnomaly(n);
+  if (G.anom) G.lastAnom = G.anom;
+  G.anomMul = G.anom ? ANOMALIES[G.anom].score : 1;
+  recomputeStats();
   G.hpMul = (1 + 0.14 * (eff - 1) + 0.012 * (eff - 1) * (eff - 1)) * (m.swarm ? 0.8 : 1) * (m.elite ? 1.5 : 1);
-  G.spdMul = (1 + Math.min(0.4, 0.025 * (eff - 1))) * (m.fast ? 1.3 : 1);
-  const budget = (22 + 22 * eff + 4.2 * eff * eff) * (m.swarm ? 1.6 : 1);
+  G.spdMul = (1 + Math.min(0.4, 0.025 * (eff - 1))) * (m.fast ? 1.3 : 1) * (G.anom === 'haste' ? 1.2 : 1);
+  const budget = (22 + 22 * eff + 4.2 * eff * eff) * (m.swarm ? 1.6 : 1) * (G.anom === 'rush' ? 1.45 : 1);
   const firstLoop = n === 1 && !G.demo && run.mode !== 'swarm';
   G.budget = budget;
   G.spawnRate = G.bossLoop ? (budget * (run.mode === 'bossrush' ? 0.1 : 0.18)) / 24.6 : budget / (firstLoop ? 16.6 : 24.6);
@@ -131,6 +139,7 @@ function modeLine() {
   const r = G.run;
   let s = MODES[r.mode].name;
   if (r.mode === 'campaign') s = 'SEKTOR ' + (r.levelIdx + 1) + ' · ' + r.level.name.toUpperCase();
+  if (r.map !== 'grid') s += '  ·  ' + MAPS[r.map].name;
   const m = r.mutList.map((id) => MUTATORS[id].name.toUpperCase());
   return m.length ? s + '  ·  ' + m.join(' + ') : s;
 }
@@ -138,14 +147,21 @@ function loopLabel() {
   const r = G.run, n = G.loop;
   if (r.mode === 'bossrush') return 'BOSS ' + Math.max(1, n);
   if (r.mode === 'swarm') return 'ZEITRISS ' + n;
-  if (r.mode === 'campaign') return G.bossLoop ? 'BOSSKAMPF' : 'LOOP ' + n + '/' + r.level.loops;
+  if (r.mode === 'campaign') return G.bossLoop ? 'BOSSKAMPF' : r.level.kills ? 'JAGD · LOOP ' + n : 'LOOP ' + n + '/' + r.level.loops;
   return (G.bossLoop ? 'BOSS · ' : '') + 'LOOP ' + n;
+}
+/** Zusatzzeile im HUD: Jagd-Fortschritt oder aktive Anomalie. */
+function anomLine() {
+  const r = G.run;
+  if (r.mode === 'campaign' && r.level.kills) return `ABSCHÜSSE ${Math.min(G.kills, r.level.kills)} / ${r.level.kills}`;
+  return G.anom ? 'ANOMALIE · ' + ANOMALIES[G.anom].name : '';
 }
 
 // ---------------------------------------------------------------- Ablauf
 function startDemo(screen) {
   G.demo = true; G.bot = true;
-  G.run = { mode: 'demo', ship: P.ship, level: null, levelIdx: -1, muts: {}, mutList: [], scoreMul: 1, start: null };
+  G.run = { mode: 'demo', ship: P.ship, level: null, levelIdx: -1, muts: {}, mutList: [], scoreMul: 1, start: null, map: pick(MAP_ORDER) };
+  setMap(G.run.map);
   Sfx.setQuiet(true); Sfx.music(0); Sfx.muffle(false);
   newRun();
   G.up = { multi: 1, rate: 2, dmg: 2, pierce: 1 };
@@ -169,6 +185,7 @@ function startGame(cfg) {
   G.demo = false; G.bot = BOT_PARAM; G.victory = false;
   Sfx.setQuiet(false); Sfx.muffle(false);
   G.run = buildRun(cfg);
+  setMap(G.run.map);
   newRun();
   const run = G.run, p = G.player;
   if (run.start) for (const id in run.start) G.up[id] = run.start[id];
@@ -194,26 +211,38 @@ function startLoop(n) {
   G.loop = n; G.loopT = 0; lastTick = -1;
   setLoopParams(n);
   G.spawnAcc = G.budget * 0.1; G.packT = 0.2;
-  G.boss = null; G.bossSpawned = false; G.bossEndT = 0; G.bossHits = 0;
-  G.enemies.length = 0; G.bullets.length = 0; G.ebullets.length = 0; G.blasts.length = 0; G.pickups.length = 0;
-  p.x = CX; p.y = CY; p.vx = 0; p.vy = 0; p.invuln = 1.2; p.hurtT = 0; p.dashT = 0; p.fireCd = 0.5; p.trail.length = 0;
+  G.boss = null; G.bossSpawned = false; G.bossEndT = 0; G.bossHits = 0; G.goalDone = false;
+  G.enemies.length = 0; G.bullets.length = 0; G.ebullets.length = 0; G.blasts.length = 0; G.pickups.length = 0; G.holes.length = 0;
+  const sp = mapSpawn();
+  p.x = sp[0]; p.y = sp[1]; p.vx = 0; p.vy = 0; p.invuln = 1.2; p.hurtT = 0; p.dashT = 0; p.fireCd = 0.5; p.trail.length = 0;
+  G.hazT = 5; G.stormT = 2.5;
+  if (G.anom === 'supply') {
+    for (let k = 0; k < 2; k++) {
+      const q = farPoint(250);
+      G.pickups.push({ kind: 1, x: q[0], y: q[1], vx: 0, vy: 0, life: 26, rot: 0, att: 0, dead: false });
+    }
+    G.nova = Math.min(1, G.nova + 0.5);
+  }
   Input.dashPressed = false; Input.novaPressed = false;
   G.rec = { data: new Float32Array(REC_MAX * 4), n: 0 };
   buildEchoes();
   G.glitch = 0.6;
   G.state = 'playing';
 
-  ring(CX, CY, 20, 520, 0.7, COL.nova, 5);
-  ring(CX, CY, 10, 300, 0.5, COL.magenta, 3);
-  Grid.blast(CX, CY, 34, 800);
-  Particles.burst(CX, CY, 60, COL.nova, 100, 700, 0.3, 0.9, 2.2);
+  ring(p.x, p.y, 20, 520, 0.7, COL.nova, 5);
+  ring(p.x, p.y, 10, 300, 0.5, COL.magenta, 3);
+  Grid.blast(p.x, p.y, 34, 800);
+  Particles.burst(p.x, p.y, 60, COL.nova, 100, 700, 0.3, 0.9, 2.2);
   Sfx.loopStart();
   Sfx.music(G.demo ? 0 : G.bossLoop ? 3 : n >= 3 ? 2 : 1);
   if (G.demo) return;
 
   const k = G.echoes.length, echoTxt = k + (k === 1 ? ' ECHO' : ' ECHOS') + ' SYNCHRONISIERT';
   if (run.mode === 'paradox' && n >= 10) award('loop10');
-  if (G.bossLoop) {
+  if (G.anom && run.mode !== 'campaign') {
+    banner('LOOP ' + n, 'ANOMALIE · ' + ANOMALIES[G.anom].name + ' — ' + ANOMALIES[G.anom].desc.toUpperCase(), 'anom');
+    Sfx.bossWarn();
+  } else if (G.bossLoop) {
     banner('WARNUNG', bossName(G.bossLv) + ' NÄHERT SICH', 'warn');
     Sfx.bossWarn();
   } else if (run.mode === 'campaign') {
@@ -223,6 +252,7 @@ function startLoop(n) {
     banner('SCHWARM', 'ÜBERLEBE, SO LANGE DU KANNST');
   } else if (n === 1) banner('LOOP 1', S.pacifist ? 'WEICH AUS — DEINE ECHOS WERDEN FÜR DICH FEUERN' : G.touch ? 'LINKER DAUMEN BEWEGT — DEIN SCHIFF ZIELT VON SELBST' : 'ÜBERLEBE — DEIN FLUG WIRD AUFGEZEICHNET');
   else if (n === 2) banner('LOOP 2', 'DEIN ECHO KÄMPFT JETZT AN DEINER SEITE');
+  else if (n === 3 && run.mode === 'paradox' && !P.stats.anoms) banner('LOOP 3', 'AB JETZT KÖNNEN ANOMALIEN AUFTRETEN');
   else banner('LOOP ' + n, echoTxt);
 }
 
@@ -255,6 +285,11 @@ function endLoop() {
   saveRecording();
   G.loopsDone++;
   award('first_loop');
+  if (!G.demo) {
+    P.mapLoops[G.run.map] = (P.mapLoops[G.run.map] || 0) + 1;
+    if (MAP_ORDER.every((id) => P.mapLoops[id] > 0)) award('maps');
+    if (G.anom) { P.stats.anoms = (P.stats.anoms || 0) + 1; if (P.stats.anoms >= 10) award('anom10'); }
+  }
   for (const e of G.enemies) e.dieAt = rand(0.05, 0.75);
   for (const b of G.ebullets) { b.dead = true; Particles.burst(b.x, b.y, 2, COL.ebullet, 40, 160, 0.15, 0.4, 1.5); }
   G.blasts.length = 0;
@@ -263,7 +298,8 @@ function endLoop() {
   G.glitch = 1; shake(0.45);
   Sfx.loopEnd();
   if (!G.demo) Sfx.muffle(true);
-  banner(G.bossLoop ? 'BOSS VERNICHTET' : `LOOP ${G.loop} ÜBERSTANDEN`, 'ZEITLINIE WIRD ZURÜCKGESPULT', 'cy');
+  if (G.goalDone) banner('ZIEL ERREICHT', 'SEKTOR GESICHERT', 'cy');
+  else banner(G.bossLoop ? 'BOSS VERNICHTET' : `LOOP ${G.loop} ÜBERSTANDEN`, 'ZEITLINIE WIRD ZURÜCKGESPULT', 'cy');
 }
 
 function demoUpgrade() {
@@ -276,10 +312,10 @@ function afterLoopEnd() {
   G.enemies.length = 0; G.bullets.length = 0; G.ebullets.length = 0;
   if (G.demo) { demoUpgrade(); startLoop(G.loop + 1); return; }
   const run = G.run;
-  if (run.mode === 'campaign' && G.loop >= campaignLoops(run.level)) { victory(); return; }
+  if (run.mode === 'campaign' && (G.goalDone || G.loop >= campaignLoops(run.level))) { victory(); return; }
   let picks = 1 + G.pendingPicks;
   G.pendingPicks = 0;
-  if (G.bossLoop) { picks++; G.player.hp = Math.min(S.maxHp, G.player.hp + 1); }
+  if (G.bossLoop) { picks++; G.player.hp = Math.min(S.maxHp, G.player.hp + 1); G.bossBonus = true; }
   if (run.mode === 'bossrush') picks++;
   openUpgrades(picks, (G.bossLoop ? 'BOSS VERNICHTET' : `LOOP ${G.loop} ÜBERSTANDEN`) + '  ·  ECHO AUFGEZEICHNET');
 }
@@ -298,7 +334,8 @@ function openUpgrades(n, kicker, resume) {
 }
 
 function rollCards() {
-  G.cards = rollUpgrades(3);
+  G.cards = rollUpgrades(3, G.bossBonus);
+  G.bossBonus = false;
   if (!G.cards.length) { finishUpgrades(); return; }
   upgradeLockT = performance.now() + 450;
   el.upLeft.textContent = G.picksLeft > 1 ? `NOCH ${G.picksLeft} AUSWAHLEN` : '';
@@ -395,12 +432,16 @@ function settleRun(won) {
   } else if (run.mode === 'campaign' && won) {
     const stars = G.hitsTaken === 0 ? 3 : G.hitsTaken <= 2 ? 2 : 1, old = P.campaign[run.level.id] || 0;
     out.stars = stars; out.newStars = Math.max(0, stars - old);
+    if (!old) out.campUnlocks = UNLOCKS.filter((u) => u.camp === run.level.id);
     if (stars > old) P.campaign[run.level.id] = stars;
     if (run.level.id === 'c6') award('pacifist');
     if (P.campaign.c5) award('act1');
     if (P.campaign.c10) award('act2');
     if (P.campaign.c15) award('act3');
+    if (P.campaign.c20) award('act4');
+    if (P.campaign.c25) award('act5');
     if (totalStars() >= 30) award('stars30');
+    if (totalStars() >= 60) award('stars60');
   }
   if (score <= 0) out.record = out.record && run.mode !== 'paradox' && run.mode !== 'daily';
   if (P.stats.kills >= 1000) award('kills1k');
@@ -410,7 +451,7 @@ function settleRun(won) {
   out.cores = Math.round((G.loopsDone * 3 + G.bossKills * 12 + G.kills / 40 + out.newStars * 6) * (1 + 0.1 * metaLv('m_core')));
   P.xp += out.xp; P.cores += out.cores;
   out.after = rankInfo(P.xp);
-  out.unlocks = UNLOCKS.filter((u) => u.rank > out.before.rank && u.rank <= out.after.rank);
+  out.unlocks = UNLOCKS.filter((u) => u.rank && u.rank > out.before.rank && u.rank <= out.after.rank).concat(out.campUnlocks || []);
   out.ach = G.newAch.slice();
   G.lastOut = out;
   save();
@@ -440,6 +481,7 @@ function showResult(won) {
   const rows = [];
   if (run.mode === 'swarm') rows.push(['ÜBERLEBT', mmss(G.runT)], ['ZEITRISSE', G.loop], ['PUNKTE', fmt(out.score)]);
   else if (run.mode === 'bossrush') rows.push(['BOSSE BESIEGT', G.bossKills], ['ZEIT', mmss(G.runT)], ['PUNKTE', fmt(out.score)]);
+  else if (camp && run.level.kills) rows.push(['PUNKTE', fmt(out.score)], ['LOOP', G.loop], ['ZEIT', mmss(G.runT)]);
   else if (camp) rows.push(['PUNKTE', fmt(out.score)], ['LOOP', G.loop + '/' + campaignLoops(run.level)], ['ZEIT', mmss(G.runT)]);
   else rows.push(['PUNKTE', fmt(out.score)], ['ERREICHTER LOOP', G.loop], ['ZEIT', mmss(G.runT)]);
   rows.push(['ABSCHÜSSE', fmt(G.kills)], ['MAX. MULTIPLIKATOR', '×' + fmt(G.maxMult)], ['ECHOS', G.echoes.length]);
@@ -515,24 +557,33 @@ function aimFromMouse() {
 
 /** Touch: wandernde Sticks auswerten. Ohne Zielstick übernimmt die Zielautomatik. */
 function stickVec(s) {
+  const R0 = stickR();
   let dx = s.x - s.ox, dy = s.y - s.oy;
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len > STICK_R) {                 // der Stick-Mittelpunkt wandert mit dem Daumen mit
-    const k = 1 - STICK_R / len;
-    s.ox += dx * k; s.oy += dy * k;
-    dx = s.x - s.ox; dy = s.y - s.oy;
+  if (len > R0) {
+    if (s.fixed) {                     // fester Stick: der Knopf bleibt am Rand
+      s.x = s.ox + (dx / len) * R0; s.y = s.oy + (dy / len) * R0;
+      dx = s.x - s.ox; dy = s.y - s.oy;
+    } else {                           // schwebender Stick: der Mittelpunkt wandert mit dem Daumen mit
+      const k = 1 - R0 / len;
+      s.ox += dx * k; s.oy += dy * k;
+      dx = s.x - s.ox; dy = s.y - s.oy;
+    }
   }
-  s.dx = dx / STICK_R; s.dy = dy / STICK_R;
-  return Math.min(1, len / STICK_R);
+  s.dx = dx / R0; s.dy = dy / R0;
+  return Math.min(1, len / R0);
 }
 
 function touchThink(dt) {
-  const p = G.player;
-  if (Pad.move && stickVec(Pad.move) > 0.14) {
-    Input.ax = clamp(Pad.move.dx * 1.3, -1, 1); Input.ay = clamp(Pad.move.dy * 1.3, -1, 1);
+  const p = G.player, st = P.settings;
+  if (Pad.move && stickVec(Pad.move) > st.dead) {
+    Input.ax = clamp(Pad.move.dx * st.sens, -1, 1); Input.ay = clamp(Pad.move.dy * st.sens, -1, 1);
   } else { Input.ax = 0; Input.ay = 0; }
   if (Pad.aim && stickVec(Pad.aim) > 0.25) p.botAng = Math.atan2(Pad.aim.dy, Pad.aim.dx);
-  else autoAim(dt);
+  else if (st.autoAim) autoAim(dt);
+  else if (Input.ax * Input.ax + Input.ay * Input.ay > 0.04) {        // ohne Zielhilfe: in Flugrichtung feuern
+    p.botAng += clamp(angDiff(p.botAng, Math.atan2(Input.ay, Input.ax)), -dt * 14, dt * 14);
+  }
   Input.wx = p.x + Math.cos(p.botAng) * 220;
   Input.wy = p.y + Math.sin(p.botAng) * 220;
 }
@@ -542,7 +593,8 @@ function setTouchMode(on) {
   G.touch = on;
   Pad.move = null; Pad.aim = null;
   document.body.classList.toggle('touch', on);
-  if (on && R.quality > 0.75) R.setQuality(0.75);     // Handys: etwas geringere Auflösung für flüssige 60 fps
+  if (on && R.quality > 0.75 && P.settings.quality === 'auto') R.setQuality(0.75);     // Handys: etwas geringere Auflösung für flüssige 60 fps
+  applyTouchLayout();
 }
 
 function updateCamera(rdt) {
@@ -556,7 +608,7 @@ function updateCamera(rdt) {
   ty = vh >= ARENA_H + 2 * m ? CY : clamp(ty, vh / 2 - m, ARENA_H - vh / 2 + m);
   G.camX = damp(G.camX, tx, 7, rdt);
   G.camY = damp(G.camY, ty, 7, rdt);
-  const s = G.trauma * G.trauma * 18;
+  const s = G.trauma * G.trauma * 18 * (G.demo ? 1 : P.settings.shake);
   R.cam.x = G.camX + (Math.random() * 2 - 1) * s;
   R.cam.y = G.camY + (Math.random() * 2 - 1) * s;
   R.cam.zoom = zoom;
@@ -587,8 +639,12 @@ function update(rdt) {
     updateBullets(dt);
     updateEBullets(dt);
     updateBlasts(dt);
+    updateHoles(dt);
+    updateMapFx(dt);
     updatePickups(dt, false);
     G.loopT += dt; G.runT += dt;
+    const lv = G.run.level;
+    if (lv && lv.kills && G.kills >= lv.kills && G.state === 'playing') { G.goalDone = true; endLoop(); }
     if (G.state === 'playing') {
       if (G.bossLoop) {
         if (G.bossEndT > 0) { G.bossEndT -= dt; if (G.bossEndT <= 0) endLoop(); }
@@ -613,7 +669,7 @@ function update(rdt) {
     p.vx *= f; p.vy *= f;
     p.x = clamp(p.x + p.vx * rdt, 14, ARENA_W - 14);
     p.y = clamp(p.y + p.vy * rdt, 14, ARENA_H - 14);
-    if (G.endT > 0.75) { p.x = damp(p.x, CX, 7, rdt); p.y = damp(p.y, CY, 7, rdt); }
+    if (G.endT > 0.75) { const sp = mapSpawn(); p.x = damp(p.x, sp[0], 7, rdt); p.y = damp(p.y, sp[1], 7, rdt); }
     pushTrail(p, rdt, 26);
     for (const e of G.echoes) e.fade = Math.max(0, e.fade - rdt * 1.2);
     G.glitch = Math.max(G.glitch, 0.55);
@@ -697,6 +753,7 @@ function render() {
   drawStars();
   Grid.draw(beat);
   drawArena(beat);
+  drawMap(beat);
   drawPickups();
   drawEnemies(R.cam.x - hw, R.cam.y - hh, R.cam.x + hw, R.cam.y + hh);
   drawBullets();
@@ -734,6 +791,9 @@ function updateHud() {
   setTxt(el.score, 'score', fmt(G.score));
   setTxt(el.mult, 'mult', '×' + fmt(G.mult));
   setTxt(el.loop, 'loop', loopLabel());
+  const al = anomLine();
+  setTxt(el.anom, 'anom', al);
+  toggleCls(el.anom, 'hidden', !al, 'anomH');
   const rem = Math.max(0, G.loopDur - G.loopT);
   el.timer.style.transform = `scaleX(${(G.bossLoop ? 1 : clamp(rem / G.loopDur, 0, 1)).toFixed(4)})`;
   setTxt(el.time, 'time', swarm ? mmss(G.runT) : G.bossLoop ? '∞' : Math.ceil(rem) + ' s');
@@ -776,8 +836,8 @@ function updateHud() {
     setProp(el.tNova, 'tnp', clamp(G.nova, 0, 1));
     toggleCls(el.tDash, 'ready', dp >= 1, 'tdR');
     toggleCls(el.tNova, 'ready', G.nova >= 1, 'tnR');
-    drawStick(el.stickL, Pad.move);
-    drawStick(el.stickR, Pad.aim);
+    drawStick(el.stickL, Pad.move, P.settings.stick === 'fixed');
+    drawStick(el.stickR, Pad.aim, false);
   }
 }
 
@@ -786,10 +846,16 @@ function setProp(node, key, v) {
   if (hudCache[key] !== s) { hudCache[key] = s; node.style.setProperty('--p', s); }
 }
 
-function drawStick(base, s) {
-  const on = !!s && G.state === 'playing';
+function drawStick(base, s, fixed) {
+  const on = (!!s || fixed) && G.state === 'playing';
   if (base._on !== on) { base._on = on; base.style.display = on ? 'block' : 'none'; }
   if (!on) return;
+  if (!s) {                              // fester Stick in Ruhe
+    const c = touchPos('stick');
+    base.style.transform = `translate(${c[0].toFixed(1)}px, ${c[1].toFixed(1)}px)`;
+    base.firstElementChild.style.transform = 'translate(0px, 0px)';
+    return;
+  }
   base.style.transform = `translate(${s.ox.toFixed(1)}px, ${s.oy.toFixed(1)}px)`;
   base.firstElementChild.style.transform = `translate(${(s.x - s.ox).toFixed(1)}px, ${(s.y - s.oy).toFixed(1)}px)`;
 }
@@ -807,7 +873,7 @@ function frame(now) {
   const st = G.state;
   const dTarget = st === 'paused' ? 0.6 : st === 'dead' ? 0.75 : st === 'gameover' ? (G.victory ? 0.15 : 0.75) : st === 'upgrade' ? 0.3 : 0;
   G.desat = damp(G.desat || 0, dTarget, 8, rdt);
-  const darkOn = !G.demo && G.run && G.run.muts.dark && st !== 'gameover' && st !== 'upgrade';
+  const darkOn = !G.demo && G.run && (G.run.muts.dark || G.anom === 'dark') && st !== 'gameover' && st !== 'upgrade';
   G.darkAmt = damp(G.darkAmt || 0, darkOn ? 1 : 0, 4, rdt);
   render();
   updateHud();
@@ -815,7 +881,7 @@ function frame(now) {
   // Auflösung automatisch senken, falls der Rechner nicht hinterherkommt
   perfAcc += raw; perfN++;
   if (perfN >= 150) {
-    if (perfAcc / perfN > 0.024 && R.quality > 0.5 && document.hasFocus()) R.setQuality(R.quality - 0.25);
+    if (perfAcc / perfN > 0.024 && R.quality > 0.5 && document.hasFocus() && P.settings.quality === 'auto') R.setQuality(R.quality - 0.25);
     perfAcc = 0; perfN = 0;
   }
 }
@@ -832,13 +898,18 @@ function bindTouch() {
     firstGesture();
     if (G.state !== 'playing' || G.demo) return;
     ev.preventDefault();
+    const st = P.settings;
     for (const t of ev.changedTouches) {
-      const s = { id: t.identifier, ox: t.clientX, oy: t.clientY, x: t.clientX, y: t.clientY, dx: 0, dy: 0 };
-      const left = t.clientX < window.innerWidth * 0.5;
-      if (left && !Pad.move) Pad.move = s;
-      else if (!left && !Pad.aim) Pad.aim = s;
+      const s = { id: t.identifier, ox: t.clientX, oy: t.clientY, x: t.clientX, y: t.clientY, dx: 0, dy: 0, fixed: false };
+      const half = t.clientX < window.innerWidth * 0.5, moveSide = st.lefty ? !half : half;
+      if (moveSide && !Pad.move) Pad.move = s;
+      else if (!moveSide && !Pad.aim) Pad.aim = s;
       else if (!Pad.move) Pad.move = s;
       else if (!Pad.aim) Pad.aim = s;
+      if (Pad.move === s && st.stick === 'fixed') {
+        const c = touchPos('stick');
+        s.ox = c[0]; s.oy = c[1]; s.fixed = true;
+      }
     }
   }, { passive: false });
   cv.addEventListener('touchmove', (ev) => {
@@ -858,7 +929,10 @@ function bindTouch() {
   cv.addEventListener('touchend', end);
   cv.addEventListener('touchcancel', end);
 
-  const press = (node, fn) => node.addEventListener('pointerdown', (ev) => { ev.preventDefault(); firstGesture(); fn(); });
+  const press = (node, fn) => node.addEventListener('pointerdown', (ev) => {
+    if (document.body.classList.contains('layout-edit')) return;
+    ev.preventDefault(); firstGesture(); fn();
+  });
   press(el.tDash, () => { if (G.state === 'playing') Input.dashPressed = true; });
   press(el.tNova, () => { if (G.state === 'playing') Input.novaPressed = true; });
   press(el.tPause, togglePause);
@@ -883,34 +957,39 @@ function bindTouch() {
 
 function bindInput() {
   window.addEventListener('keydown', (ev) => {
-    const c = ev.code;
+    if (settingsKeydown(ev)) return;                  // Tastenbelegung wird gerade aufgenommen
+    const c = ev.code, act = keyAction(c), inSet = ui.screen === 'screen-settings';
     if (c === 'Space' || c.startsWith('Arrow')) ev.preventDefault();
     firstGesture();
-    if (G.touch && /^(Key[WASD]|Arrow)/.test(c)) setTouchMode(false);
-    switch (c) {
-      case 'KeyW': case 'ArrowUp': Input.up = true; break;
-      case 'KeyS': case 'ArrowDown': Input.down = true; break;
-      case 'KeyA': case 'ArrowLeft': Input.left = true; break;
-      case 'KeyD': case 'ArrowRight': Input.right = true; break;
-      case 'Space': case 'ShiftLeft': case 'ShiftRight': if (!ev.repeat && G.state === 'playing') Input.dashPressed = true; break;
-      case 'KeyE': case 'KeyQ': if (!ev.repeat && G.state === 'playing') Input.novaPressed = true; break;
-      case 'KeyR': if (!ev.repeat) rerollCards(); break;
-      case 'Escape': case 'KeyP':
-        if (ev.repeat) break;
-        if (G.demo) { if (c === 'Escape') menuBack(); } else togglePause();
-        break;
-      case 'KeyM': if (!ev.repeat) toggleMute(); break;
-      case 'KeyF':
+    if (G.touch && (act === 'up' || act === 'down' || act === 'left' || act === 'right')) setTouchMode(false);
+    switch (act) {
+      case 'up': Input.up = true; break;
+      case 'down': Input.down = true; break;
+      case 'left': Input.left = true; break;
+      case 'right': Input.right = true; break;
+      case 'dash': if (!ev.repeat && G.state === 'playing') Input.dashPressed = true; break;
+      case 'nova': if (!ev.repeat && G.state === 'playing') Input.novaPressed = true; break;
+      case 'pause': if (!ev.repeat && !G.demo && !inSet) togglePause(); break;
+      case 'mute': if (!ev.repeat) toggleMute(); break;
+      case 'autofire':
         if (!ev.repeat && !G.demo) {
           G.autoFire = !G.autoFire; save();
           toast(G.autoFire ? 'AUTO-FEUER AN' : 'AUTO-FEUER AUS — LINKE MAUSTASTE HALTEN');
         }
         break;
+    }
+    switch (c) {
+      case 'KeyR': if (!ev.repeat && !act) rerollCards(); break;
+      case 'Escape':
+        if (ev.repeat) break;
+        if (inSet) closeSettings();
+        else if (G.demo) menuBack(); else togglePause();
+        break;
       case 'Digit1': case 'Numpad1': pickCard(0); break;
       case 'Digit2': case 'Numpad2': pickCard(1); break;
       case 'Digit3': case 'Numpad3': pickCard(2); break;
       case 'Enter': case 'NumpadEnter':
-        if (ev.repeat) break;
+        if (ev.repeat || inSet) break;
         ev.preventDefault();
         if (G.state === 'paused') togglePause();
         else if (ui.screen === 'screen-over') resultPrimary();
@@ -919,11 +998,11 @@ function bindInput() {
     }
   });
   window.addEventListener('keyup', (ev) => {
-    switch (ev.code) {
-      case 'KeyW': case 'ArrowUp': Input.up = false; break;
-      case 'KeyS': case 'ArrowDown': Input.down = false; break;
-      case 'KeyA': case 'ArrowLeft': Input.left = false; break;
-      case 'KeyD': case 'ArrowRight': Input.right = false; break;
+    switch (keyAction(ev.code)) {
+      case 'up': Input.up = false; break;
+      case 'down': Input.down = false; break;
+      case 'left': Input.left = false; break;
+      case 'right': Input.right = false; break;
     }
   });
   window.addEventListener('mousemove', (ev) => { Input.mx = ev.clientX; Input.my = ev.clientY; });
@@ -960,6 +1039,7 @@ function bindInput() {
   });
   bindTouch();
   bindMenus();
+  bindSettings();
 }
 
 // ---------------------------------------------------------------- Start
@@ -967,7 +1047,7 @@ function init() {
   const ids = {
     hud: 'hud', score: 'h-score', mult: 'h-mult', mode: 'h-mode', loop: 'h-loop', timer: 'h-timer', timerWrap: 'h-timer-wrap', time: 'h-time',
     echoes: 'h-echoes', hp: 'h-hp', dash: 'h-dash', dashM: 'm-dash', dashLabel: 'h-dash-label', nova: 'h-nova', novaM: 'm-nova',
-    xp: 'h-xp', xpM: 'm-xp', xpLabel: 'h-xp-label', bossbar: 'bossbar', bossName: 'boss-name', bossFill: 'boss-fill',
+    xp: 'h-xp', xpM: 'm-xp', xpLabel: 'h-xp-label', bossbar: 'bossbar', bossName: 'boss-name', bossFill: 'boss-fill', anom: 'h-anom',
     banner: 'banner', toast: 'toast', best: 'best', upKicker: 'up-kicker', upLeft: 'up-left', cards: 'cards', btnReroll: 'btn-reroll',
     build: 'pause-build', pauseMode: 'pause-mode', overKicker: 'over-kicker', overTitle: 'over-title', overStars: 'over-stars',
     overRecord: 'over-record', overStats: 'over-stats', overRewards: 'over-rewards', overHint: 'over-hint',
@@ -990,6 +1070,7 @@ function init() {
   if (P.muted) Sfx.setMuted(true);
   G.autoFire = P.autoFire !== false;
   updateSoundLabel();
+  applySettings();
   bindInput();
   if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) setTouchMode(true);
   startDemo();
@@ -1000,7 +1081,7 @@ function init() {
     G, S, R, P, Input, Particles, Sfx, ui, CAMPAIGN, UPGRADE_BY_ID,
     step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) update(dt); render(); updateHud(); },
     startGame, startDemo, startLoop, endLoop, pickCard, togglePause, spawnEnemy, spawnBoss, applyUpgrade,
-    settleRun, showResult, openHub, saveProfile,
+    settleRun, showResult, openHub, saveProfile, openSettings, openLayout, setMap, MAPS,
   };
 
   // Offline-Unterstützung nur auf der veröffentlichten Seite (nicht beim lokalen Entwickeln)

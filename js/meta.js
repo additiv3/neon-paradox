@@ -5,11 +5,20 @@ const SAVE_KEY = 'neonparadox.v2';
 /** Dauerhaftes Spielerprofil (localStorage). */
 const P = {
   xp: 0, cores: 0, ship: 'vektor',
-  meta: {}, ach: {}, best: {}, bestLoop: 0, campaign: {},
+  meta: {}, ach: {}, best: {}, bestLoop: 0, campaign: {}, mapLoops: {}, lastMaps: {},
   daily: { key: '', best: 0 },
-  stats: { runs: 0, kills: 0, bosses: 0, loops: 0, time: 0 },
+  stats: { runs: 0, kills: 0, bosses: 0, loops: 0, time: 0, anoms: 0 },
   muted: false, autoFire: true,
+  settings: defaultSettings(),
 };
+
+/** Standard-Einstellungen (siehe settings.js). */
+function defaultSettings() {
+  return {
+    keys: null, tSize: 1, tAlpha: 0.8, stick: 'float', sens: 1.3, dead: 0.14, autoAim: true, lefty: false, pos: {},
+    haptic: true, shake: 1, quality: 'auto', music: 0.8, sfx: 1,
+  };
+}
 
 function saveProfile() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(P)); } catch (e) { /* privater Modus o. Ä. */ }
@@ -36,6 +45,9 @@ function loadProfile() {
     }
   } catch (e) { /* defekter Spielstand: mit Standardwerten weiter */ }
   if (!SHIPS[P.ship]) P.ship = 'vektor';
+  const def = defaultSettings();
+  for (const k in def) if (P.settings[k] === undefined) P.settings[k] = def[k];
+  if (!P.settings.pos || typeof P.settings.pos !== 'object') P.settings.pos = {};
 }
 
 const metaLv = (id) => P.meta[id] || 0;
@@ -52,22 +64,42 @@ function rankInfo(xp) {
 
 const UNLOCKS = [
   { rank: 2, type: 'mode', id: 'swarm', label: 'Modus SCHWARM' },
+  { rank: 2, type: 'map', id: 'pillars', label: 'Arena SÄULENHALLE' },
   { rank: 3, type: 'ship', id: 'phantom', label: 'Schiff PHANTOM' },
+  { rank: 3, type: 'map', id: 'cross', label: 'Arena KREUZUNG' },
   { rank: 4, type: 'mode', id: 'bossrush', label: 'Modus BOSS-RUSH' },
   { rank: 5, type: 'mode', id: 'daily', label: 'Modus TAGES-PARADOX' },
+  { rank: 5, type: 'map', id: 'blocks', label: 'Arena KAMMERN' },
   { rank: 6, type: 'ship', id: 'bastion', label: 'Schiff BASTION' },
+  { rank: 6, type: 'map', id: 'reactor', label: 'Arena REAKTOR' },
   { rank: 7, type: 'feature', id: 'mutators', label: 'Mutatoren für PARADOX und SCHWARM' },
+  { rank: 8, type: 'map', id: 'rift', label: 'Arena RISS' },
   { rank: 9, type: 'ship', id: 'prisma', label: 'Schiff PRISMA' },
   { rank: 12, type: 'ship', id: 'chronos', label: 'Schiff CHRONOS' },
+  { camp: 'c20', type: 'ship', id: 'nexus', label: 'Schiff NEXUS' },
 ];
-function unlockRank(type, id) {
-  for (const u of UNLOCKS) if (u.type === type && u.id === id) return u.rank;
-  return 1;
+function unlockEntry(type, id) {
+  for (const u of UNLOCKS) if (u.type === type && u.id === id) return u;
+  return null;
 }
-const isUnlocked = (type, id) => rankInfo(P.xp).rank >= unlockRank(type, id);
+function unlockRank(type, id) {
+  const u = unlockEntry(type, id);
+  return u && u.rank ? u.rank : 1;
+}
+/** Beschriftung für Gesperrtes: "AB RANG 6" oder "NACH SEKTOR 20". */
+function unlockText(type, id) {
+  const u = unlockEntry(type, id);
+  if (u && u.camp) return 'NACH SEKTOR ' + u.camp.slice(1);
+  return 'AB RANG ' + unlockRank(type, id);
+}
+function isUnlocked(type, id) {
+  const u = unlockEntry(type, id);
+  if (u && u.camp) return (P.campaign[u.camp] || 0) > 0;
+  return rankInfo(P.xp).rank >= unlockRank(type, id);
+}
 
 // ---------------------------------------------------------------- Schiffe
-const shipDef = (o) => Object.assign({ hp: 0, speed: 1, dmg: 1, dashCd: 1, multi: 0, echoPow: 0, echoCap: 0, bounce: 0, shield: 0, dashDmg: 0, mirror: 0, hurtNova: 0 }, o);
+const shipDef = (o) => Object.assign({ hp: 0, speed: 1, dmg: 1, dashCd: 1, multi: 0, echoPow: 0, echoCap: 0, bounce: 0, shield: 0, dashDmg: 0, mirror: 0, hurtNova: 0, drone: 0, droneRate: 1 }, o);
 const SHIPS = {
   vektor: shipDef({
     name: 'VEKTOR', tag: 'Ausgewogener Allrounder', shape: SHAPES.ship, col: [1.9, 1.85, 1.65], css: '#fff3d6',
@@ -93,8 +125,13 @@ const SHIPS = {
     lines: ['+1 Echo, Echos sind 25 % stärker', 'Das neueste Echo bekommt einen Spiegelzwilling', '−15 % eigener Schaden'],
     echoCap: 1, echoPow: 0.25, mirror: 1, dmg: 0.85,
   }),
+  nexus: shipDef({
+    name: 'NEXUS', tag: 'Drohnenträger', shape: SHAPES.shipNexus, col: [1.0, 1.9, 1.2], css: '#8dffb0',
+    lines: ['Startet mit 2 Kampfdrohnen', 'Drohnen feuern 30 % schneller', '−1 Echo'],
+    drone: 2, droneRate: 1.3, echoCap: -1,
+  }),
 };
-const SHIP_ORDER = ['vektor', 'phantom', 'bastion', 'prisma', 'chronos'];
+const SHIP_ORDER = ['vektor', 'phantom', 'bastion', 'prisma', 'chronos', 'nexus'];
 
 function shipSvg(id) {
   const s = SHIPS[id].shape, pts = [];
@@ -144,12 +181,12 @@ const MODES = {
   paradox: {
     name: 'PARADOX', tag: 'Der Klassiker', css: '#5ef2ff',
     desc: 'Endlose Zeitschleifen. Jede überstandene Runde wird zu einem Echo.',
-    rules: ['Loops von 30 Sekunden', 'Jeder fünfte Loop ist ein Bosskampf', 'Nach jedem Loop wählst du Aufwertungen'],
+    rules: ['Loops von 30 Sekunden, jeder fünfte ist ein Bosskampf', 'Ab Loop 3 können Anomalien die Regeln ändern', 'Nach Bossen winkt eine epische oder legendäre Aufwertung'],
   },
   campaign: {
-    name: 'KAMPAGNE', tag: '15 Sektoren · 45 Sterne', css: '#ffd75e',
-    desc: 'Handgebaute Missionen mit eigenen Gegnern, Regeln und Sonderbedingungen.',
-    rules: ['Drei Akte mit je fünf Sektoren', 'Jeder Sektor hat ein festes Ziel', 'Bis zu drei Sterne pro Sektor'],
+    name: 'KAMPAGNE', tag: '25 Sektoren · 75 Sterne', css: '#ffd75e',
+    desc: 'Handgebaute Missionen mit eigenen Arenen, Gegnern, Regeln und Sonderbedingungen.',
+    rules: ['Fünf Akte mit je fünf Sektoren und einem Boss am Ende', 'Überlebens-, Jagd- und Bossmissionen', 'Bis zu drei Sterne pro Sektor – Akt IV schaltet ein neues Schiff frei'],
   },
   swarm: {
     name: 'SCHWARM', tag: 'Endlos-Überleben', css: '#ff3d9a',
@@ -164,7 +201,7 @@ const MODES = {
   daily: {
     name: 'TAGES-PARADOX', tag: 'Jeden Tag neu', css: '#9b6bff',
     desc: 'Der Klassiker mit täglich wechselnden Mutatoren und einem Startgeschenk.',
-    rules: ['Zwei Mutatoren, für alle gleich', 'Eine zufällige Aufwertung zum Start', 'Ein Rekord pro Tag'],
+    rules: ['Zwei Mutatoren und eine Arena, für alle gleich', 'Eine zufällige Aufwertung zum Start', 'Ein Rekord pro Tag'],
   },
 };
 const MODE_ORDER = ['paradox', 'campaign', 'swarm', 'bossrush', 'daily'];
@@ -184,8 +221,8 @@ const CAMPAIGN = [
 
   { id: 'c6', act: 2, name: 'Funkstille', desc: 'Deine Waffen schweigen. Nur deine Vergangenheit kämpft.',
     loops: 4, eff: 2, step: 0.7, pool: ['drifter', 'weaver', 'splitter'], muts: ['pacifist'], start: { orbit: 1, echocap: 1 } },
-  { id: 'c7', act: 2, name: 'Kreuzfeuer', desc: 'Schützen und Lanzen halten Abstand und decken dich ein.',
-    loops: 3, eff: 5, pool: ['shooter', 'lancer', 'weaver', 'drifter'], start: { multi: 1, dmg: 2, rate: 2, pierce: 1 } },
+  { id: 'c7', act: 2, name: 'Kreuzfeuer', desc: 'Schützen und Lanzen halten Abstand und decken dich ein. Die Säulen geben Deckung.',
+    map: 'pillars', loops: 3, eff: 5, pool: ['shooter', 'lancer', 'weaver', 'drifter'], start: { multi: 1, dmg: 2, rate: 2, pierce: 1 } },
   { id: 'c8', act: 2, name: 'Dunkelfeld', desc: 'Nur du und deine Echos geben Licht. Verteile sie klug.',
     loops: 4, eff: 4, step: 0.7, muts: ['dark'], start: { multi: 1, rate: 2, dmg: 2, echocap: 1 } },
   { id: 'c9', act: 2, name: 'Glaskanone', desc: 'Ein Treffer und es ist vorbei – aber du triffst wie ein Hammer.',
@@ -203,7 +240,30 @@ const CAMPAIGN = [
     loops: 4, eff: 9, step: 0.7, muts: ['elite', 'nodash'], start: { multi: 2, dmg: 5, rate: 3, pierce: 2, chain: 1, shield: 1, hp: 1 } },
   { id: 'c15', act: 3, name: 'Das Paradoxon', desc: 'Drei Loops im Dunkeln – dann der letzte Boss.',
     loops: 3, eff: 10, step: 0.7, boss: 3, bossHp: 0.9, muts: ['dark'], start: { multi: 3, dmg: 5, rate: 4, pierce: 2, echocap: 2, chain: 1, homing: 1 } },
+
+  { id: 'c16', act: 4, name: 'Säulenhalle', desc: 'Hinter den Energiesäulen lauern Schützen und Lanzen. Nutze die Deckung besser als sie.',
+    map: 'pillars', loops: 3, eff: 8, pool: ['shooter', 'lancer', 'drifter', 'weaver'], start: { multi: 2, dmg: 4, rate: 3, pierce: 1, bounce: 1, crit: 1 } },
+  { id: 'c17', act: 4, name: 'Phasengeister', desc: 'Phasengeister springen dir in den Rücken. Jage sie, bevor sie dich jagen.',
+    loops: 99, kills: 500, eff: 7, step: 0.6, pool: ['phaser', 'drifter', 'weaver'], start: { multi: 2, dmg: 4, rate: 3, crit: 2, drone: 1 } },
+  { id: 'c18', act: 4, name: 'Brutstätte', desc: 'Brutstöcke speien ohne Pause Nachwuchs aus. Zerstöre sie zuerst – zwischen den Kammern.',
+    map: 'blocks', loops: 3, eff: 8, pool: ['hive', 'splitter', 'drifter', 'weaver'], start: { multi: 2, dmg: 5, rate: 3, explode: 1, pierce: 1, laser: 1 } },
+  { id: 'c19', act: 4, name: 'Reaktorkern', desc: 'Plasmafelder zünden im Takt. Lies das Feld, bevor es dich liest.',
+    map: 'reactor', loops: 4, eff: 8, step: 0.6, start: { multi: 2, dmg: 5, rate: 3, pierce: 1, chain: 1, shield: 1 } },
+  { id: 'c20', act: 4, name: 'Die Singularität', desc: 'Der vierte Wächter krümmt den Raum um den Reaktor. Zwei Loops Vorbereitung.',
+    map: 'reactor', loops: 2, eff: 9, boss: 4, bossHp: 0.42, start: { multi: 3, dmg: 6, rate: 4, pierce: 2, echocap: 1, chain: 1, homing: 1, hp: 1 } },
+
+  { id: 'c21', act: 5, name: 'Wurmloch', desc: 'Wurmlöcher verbinden die Ecken. Stürmer und Lanzen sind schneller als du – nutze die Abkürzungen.',
+    map: 'rift', loops: 3, eff: 6, step: 0.7, muts: ['fast'], pool: ['dasher', 'lancer', 'phaser', 'weaver'], start: { multi: 2, dmg: 5, rate: 4, pierce: 1, dashcd: 2, mine: 1, shield: 1, hp: 1 } },
+  { id: 'c22', act: 5, name: 'Ionensturm', desc: 'Blitze schlagen überall ein – auch zwischen den Gegnern. Locke sie hinein.',
+    map: 'cross', anom: 'storm', loops: 4, eff: 9, step: 0.6, start: { multi: 2, dmg: 5, rate: 4, pierce: 2, cryo: 2, chain: 1 } },
+  { id: 'c23', act: 5, name: 'Treibjagd', desc: 'Ein endloser Schwarm. 900 Abschüsse, dann ist der Sektor gesichert.',
+    map: 'pillars', loops: 99, kills: 900, eff: 8, step: 0.5, muts: ['swarm'], start: { multi: 3, dmg: 5, rate: 4, pierce: 2, explode: 1, scatter: 1 } },
+  { id: 'c24', act: 5, name: 'Blindflug', desc: 'Dunkelheit, kein Dash, enge Korridore. Deine Drohnen sind deine Augen.',
+    map: 'cross', loops: 4, eff: 9, step: 0.6, muts: ['dark', 'nodash'], start: { multi: 2, dmg: 5, rate: 4, pierce: 1, drone: 2, shield: 1, hp: 1, echocap: 1 } },
+  { id: 'c25', act: 5, name: 'Omega', desc: 'Am Ende der Zeit wartet der letzte Wächter. Drei Loops – dann OMEGA.',
+    map: 'rift', loops: 3, eff: 10, step: 0.6, boss: 5, bossHp: 0.3, start: { multi: 3, dmg: 6, rate: 4, pierce: 2, echocap: 2, chain: 1, homing: 1, laser: 1, hp: 1 } },
 ];
+const ACT_NAMES = ['ERSTKONTAKT', 'IM ECHO', 'DAS PARADOXON', 'RISSE IM RAUM', 'OMEGA'];
 const campaignLoops = (lv) => lv.loops + (lv.boss ? 1 : 0);
 const campaignUnlocked = (i) => i === 0 || (P.campaign[CAMPAIGN[i - 1].id] || 0) > 0;
 function totalStars() {
@@ -234,9 +294,10 @@ function dailyInfo() {
   const pool = ['swarm', 'fast', 'dark', 'shortloop', 'elite', 'nodash', 'unstable'];
   const a = pool.splice(Math.floor(rng() * pool.length), 1)[0];
   const b = pool.splice(Math.floor(rng() * pool.length), 1)[0];
-  const gifts = ['multi', 'chain', 'orbit', 'homing', 'explode', 'bounce', 'pierce', 'echocap', 'crit'];
+  const gifts = ['multi', 'chain', 'orbit', 'homing', 'explode', 'bounce', 'pierce', 'echocap', 'crit', 'drone', 'laser', 'cryo', 'mine'];
   const gift = gifts[Math.floor(rng() * gifts.length)];
-  return { key, muts: [a, b], gift, start: { [gift]: 1 } };
+  const map = MAP_ORDER[Math.floor(rng() * MAP_ORDER.length)];
+  return { key, muts: [a, b], gift, map, start: { [gift]: 1 } };
 }
 
 // ---------------------------------------------------------------- Erfolge
@@ -261,6 +322,15 @@ const ACHIEVEMENTS = [
   { id: 'swarm5', name: 'Überlebenskünstler', desc: 'Überlebe 5 Minuten im Schwarm-Modus.', cores: 20 },
   { id: 'rush3', name: 'Riesentöter', desc: 'Besiege 3 Bosse in einem Boss-Rush.', cores: 20 },
   { id: 'daily5', name: 'Tagesform', desc: 'Erreiche Loop 5 im Tages-Paradox.', cores: 10 },
+  { id: 'boss4', name: 'Raumkrümmer', desc: 'Besiege die Singularität.', cores: 30 },
+  { id: 'boss5', name: 'Omega-Punkt', desc: 'Besiege OMEGA.', cores: 50 },
+  { id: 'act4', name: 'Akt IV', desc: 'Schließe Sektor 20 ab.', cores: 30 },
+  { id: 'act5', name: 'Ende der Zeit', desc: 'Schließe Sektor 25 ab.', cores: 60 },
+  { id: 'stars60', name: 'Sternenflotte', desc: 'Sammle 60 Sterne in der Kampagne.', cores: 50 },
+  { id: 'rewind', name: 'Zweite Chance', desc: 'Überlebe einen tödlichen Treffer dank Zeitumkehr.', cores: 15 },
+  { id: 'legend', name: 'Legende', desc: 'Wähle eine legendäre Aufwertung.', cores: 10 },
+  { id: 'anom10', name: 'Sturmerprobt', desc: 'Überstehe 10 Loops mit Anomalie.', cores: 20 },
+  { id: 'maps', name: 'Weltenbummler', desc: 'Überstehe einen Loop in jeder Arena.', cores: 25 },
 ];
 const ACH_BY_ID = {};
 for (const a of ACHIEVEMENTS) ACH_BY_ID[a.id] = a;

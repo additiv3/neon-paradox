@@ -1,10 +1,10 @@
 // Service Worker: Das Spiel funktioniert nach dem ersten Laden auch ohne Internet.
 // Strategie "Netz zuerst": online gibt es immer die neueste Version, offline die zuletzt geladene.
-const CACHE = 'neon-paradox-v1';
+const CACHE = 'neon-paradox-v2';
 const CORE = [
   './', 'index.html', 'manifest.json', 'icon.svg', 'icons/icon-192.png', 'css/style.css',
   'js/util.js', 'js/renderer.js', 'js/grid.js', 'js/particles.js', 'js/audio.js',
-  'js/world.js', 'js/upgrades.js', 'js/meta.js', 'js/game.js', 'js/menus.js',
+  'js/world.js', 'js/maps.js', 'js/upgrades.js', 'js/meta.js', 'js/game.js', 'js/settings.js', 'js/menus.js',
 ];
 
 self.addEventListener('install', (ev) => {

@@ -17,6 +17,7 @@
 </head>
 <body>
   <canvas id="gl"></canvas>
+  <div id="safe-probe" aria-hidden="true"></div>
 
   <!-- HUD -->
   <div id="hud" class="hidden">
@@ -34,6 +35,7 @@
       </div>
       <div id="h-timer-wrap" class="timer"><div id="h-timer" class="timer-fill"></div></div>
       <div id="h-echoes" class="hud-echoes"></div>
+      <div id="h-anom" class="hud-anom hidden"></div>
       <div id="bossbar" class="hidden">
         <div id="boss-name" class="boss-name">WÄCHTER</div>
         <div class="boss-track"><div id="boss-fill" class="boss-fill"></div></div>
@@ -47,7 +49,7 @@
 
     <div class="hud-bc">
       <div id="m-dash" class="meter dash">
-        <div class="meter-top"><span id="h-dash-label">DASH</span><kbd>LEERTASTE</kbd></div>
+        <div class="meter-top"><span id="h-dash-label">DASH</span><kbd id="kbd-dash">LEERTASTE</kbd></div>
         <div class="meter-bar"><div id="h-dash"></div></div>
       </div>
       <div id="m-xp" class="meter xp">
@@ -55,7 +57,7 @@
         <div class="meter-bar"><div id="h-xp"></div></div>
       </div>
       <div id="m-nova" class="meter nova">
-        <div class="meter-top"><span>NOVA</span><kbd>E</kbd></div>
+        <div class="meter-top"><span>NOVA</span><kbd id="kbd-nova">E</kbd></div>
         <div class="meter-bar"><div id="h-nova"></div></div>
       </div>
     </div>
@@ -63,11 +65,11 @@
 
   <!-- Touch-Steuerung (nur auf Handys und Tablets sichtbar) -->
   <div id="touch-ui">
-    <div id="stick-l" class="stick"><i class="knob"></i></div>
+    <div id="stick-l" class="stick" data-drag="stick"><i class="knob"></i></div>
     <div id="stick-r" class="stick aim"><i class="knob"></i></div>
-    <button id="t-pause" class="tbtn pause" aria-label="Pause"><span>II</span></button>
-    <button id="t-nova" class="tbtn nova" aria-label="Nova"><span>NOVA</span></button>
-    <button id="t-dash" class="tbtn dash" aria-label="Dash"><span>DASH</span></button>
+    <button id="t-pause" class="tbtn pause" aria-label="Pause" data-drag="pause"><span>II</span></button>
+    <button id="t-nova" class="tbtn nova" aria-label="Nova" data-drag="nova"><span>NOVA</span></button>
+    <button id="t-dash" class="tbtn dash" aria-label="Dash" data-drag="dash"><span>DASH</span></button>
   </div>
 
   <div id="banner"></div>
@@ -81,21 +83,15 @@
       <p class="tagline">Jede Runde wird aufgezeichnet.<br><b>Deine Vergangenheit kämpft an deiner Seite.</b></p>
       <div class="title-btns">
         <button id="btn-start" class="btn big">SPIELEN</button>
+        <button id="btn-settings" class="btn small">EINSTELLUNGEN</button>
         <button id="btn-full" class="btn small">VOLLBILD</button>
       </div>
-      <div class="controls mouse-only">
-        <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Bewegen</span></div>
-        <div><kbd>MAUS</kbd><span>Zielen · feuert automatisch</span></div>
-        <div><kbd>LEERTASTE</kbd><span>Dash (unverwundbar)</span></div>
-        <div><kbd>E</kbd><kbd>RECHTSKLICK</kbd><span>Nova</span></div>
-        <div><kbd>ESC</kbd><span>Pause</span></div>
-        <div><kbd>M</kbd><span>Ton</span></div>
-      </div>
+      <div id="ctl-keys" class="controls mouse-only"></div>
       <div class="controls touch-only">
         <div><kbd>LINKER DAUMEN</kbd><span>Bewegen</span></div>
         <div><kbd>AUTOMATISCH</kbd><span>Zielen und Feuern</span></div>
         <div><kbd>RECHTER DAUMEN</kbd><span>Selbst zielen (optional)</span></div>
-        <div><kbd>DASH</kbd><kbd>NOVA</kbd><span>Tasten unten rechts</span></div>
+        <div><kbd>DASH</kbd><kbd>NOVA</kbd><span>Position und Größe in den Einstellungen anpassbar</span></div>
         <div><span>Am besten im Querformat spielen</span></div>
       </div>
       <div id="best" class="best"></div>
@@ -125,6 +121,7 @@
         <button id="btn-hangar" class="btn">HANGAR</button>
         <button id="btn-workshop" class="btn">WERKSTATT</button>
         <button id="btn-ach" class="btn">ERFOLGE</button>
+        <button id="btn-hub-settings" class="btn">EINSTELLUNGEN</button>
         <button id="btn-hub-back" class="btn ghost">ZURÜCK</button>
       </footer>
     </div>
@@ -135,7 +132,7 @@
     <div class="hub">
       <header class="hub-top">
         <h2 class="hub-title">KAMPAGNE</h2>
-        <div id="camp-stars" class="camp-stars">★ 0 / 45</div>
+        <div id="camp-stars" class="camp-stars">★ 0 / 75</div>
       </header>
       <div class="hub-main">
         <div id="camp-grid" class="camp-grid"></div>
@@ -183,6 +180,33 @@
     </div>
   </section>
 
+  <!-- Einstellungen -->
+  <section id="screen-settings" class="screen menu">
+    <div class="hub narrow">
+      <header class="hub-top">
+        <h2 class="hub-title">EINSTELLUNGEN</h2>
+        <div id="set-tabs" class="set-tabs">
+          <button data-tab="touch">TOUCH</button><button data-tab="keys">TASTATUR</button><button data-tab="general">TON &amp; BILD</button>
+        </div>
+      </header>
+      <div id="set-body" class="set-body"></div>
+      <footer class="hub-foot">
+        <button id="btn-set-reset" class="btn">ZURÜCKSETZEN</button>
+        <button class="btn ghost js-back">FERTIG</button>
+      </footer>
+    </div>
+  </section>
+
+  <!-- Touch-Layout-Editor -->
+  <section id="screen-layout" class="screen">
+    <div class="layout-bar">
+      <div class="kicker">TASTEN ANORDNEN</div>
+      <div class="lb-hint">Ziehe Dash, Nova und Pause an ihren Platz.<span id="lb-stick-hint"> Für einen verschiebbaren Stick stelle „Bewegungs-Stick: Fest“ ein.</span></div>
+      <label class="lb-size"><span>GRÖSSE</span><input id="lb-size" type="range" min="0.7" max="1.5" step="0.05" value="1"></label>
+      <div class="lb-row"><button id="lb-reset" class="btn small">ZURÜCKSETZEN</button><button id="lb-done" class="btn small">FERTIG</button></div>
+    </div>
+  </section>
+
   <!-- Aufwertung -->
   <section id="screen-upgrade" class="screen">
     <div class="up-wrap">
@@ -208,9 +232,10 @@
         <button id="btn-resume" class="btn big">FORTSETZEN</button>
         <button id="btn-restart" class="btn">NEUSTART</button>
         <button id="btn-sound" class="btn">TON: AN</button>
+        <button id="btn-pause-settings" class="btn">EINSTELLUNGEN</button>
         <button id="btn-quit" class="btn">LAUF BEENDEN</button>
       </div>
-      <div class="up-hint mouse-only"><kbd>F</kbd> schaltet Auto-Feuer um</div>
+      <div class="up-hint mouse-only"><kbd id="kbd-fire">F</kbd> schaltet Auto-Feuer um</div>
     </div>
   </section>
 
@@ -245,9 +270,11 @@
   <script src="js/particles.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/world.js"></script>
+  <script src="js/maps.js"></script>
   <script src="js/upgrades.js"></script>
   <script src="js/meta.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/settings.js"></script>
   <script src="js/menus.js"></script>
 </body>
 </html>

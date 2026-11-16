@@ -4,7 +4,8 @@
    Nachbarn gekoppelt. Explosionen, Schüsse und Bewegungen schicken Wellen hindurch. */
 const Grid = (() => {
   let cols = 0, rows = 0, n = 0, sp = 44;
-  let dx, dy, vx, vy, cr, cg, cb;
+  let dx, dy, vx, vy, cr, cg, cb, mask;
+  let th = [0.045, 0.075, 0.27];
 
   function init(w, h, spacing) {
     sp = spacing;
@@ -14,6 +15,15 @@ const Grid = (() => {
     dx = new Float32Array(n); dy = new Float32Array(n);
     vx = new Float32Array(n); vy = new Float32Array(n);
     cr = new Float32Array(n); cg = new Float32Array(n); cb = new Float32Array(n);
+    mask = new Uint8Array(n);
+  }
+
+  /** Grundfarbe der Arena. */
+  function setTheme(rgb) { th = rgb; }
+
+  /** Gitterpunkte in Hindernissen werden nicht gezeichnet (fn(x, y) -> true = verdeckt). */
+  function setMask(fn) {
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) mask[r * cols + c] = fn(c * sp, r * sp) ? 1 : 0;
   }
 
   function update(dt) {
@@ -74,9 +84,9 @@ const Grid = (() => {
     const base = 1 + beat * 0.45;
     for (let i = 0; i < n; i++) {
       const e = Math.min(1, (Math.abs(dx[i]) + Math.abs(dy[i])) * 0.035 + (Math.abs(vx[i]) + Math.abs(vy[i])) * 0.11);
-      cr[i] = 0.045 * base + e * 0.50;
-      cg[i] = 0.075 * base + e * 0.42;
-      cb[i] = 0.270 * base + e * 0.85;
+      cr[i] = th[0] * base + e * 0.50;
+      cg[i] = th[1] * base + e * 0.42;
+      cb[i] = th[2] * base + e * 0.85;
     }
     // waagerechte Linien
     for (let r = 0; r < rows; r++) {
@@ -84,6 +94,7 @@ const Grid = (() => {
       let i = r * cols;
       for (let c = 0; c < cols - 1; c++, i++) {
         const j = i + 1;
+        if (mask[i] && mask[j]) continue;
         R.line2(c * sp + dx[i], r * sp + dy[i], (c + 1) * sp + dx[j], r * sp + dy[j], w,
           cr[i] * m, cg[i] * m, cb[i] * m, cr[j] * m, cg[j] * m, cb[j] * m);
       }
@@ -93,11 +104,12 @@ const Grid = (() => {
       const major = c % 5 === 0, w = major ? 1.5 : 0.95, m = major ? 1.7 : 1;
       for (let r = 0; r < rows - 1; r++) {
         const i = r * cols + c, j = i + cols;
+        if (mask[i] && mask[j]) continue;
         R.line2(c * sp + dx[i], r * sp + dy[i], c * sp + dx[j], (r + 1) * sp + dy[j], w,
           cr[i] * m, cg[i] * m, cb[i] * m, cr[j] * m, cg[j] * m, cb[j] * m);
       }
     }
   }
 
-  return { init, update, blast, push, draw };
+  return { init, update, blast, push, draw, setTheme, setMask };
 })();

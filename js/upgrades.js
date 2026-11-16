@@ -4,7 +4,11 @@ const RARITY = [
   { name: 'GEWÖHNLICH', cls: 'r0', weight: 100 },
   { name: 'SELTEN', cls: 'r1', weight: 44 },
   { name: 'EPISCH', cls: 'r2', weight: 12 },
+  { name: 'LEGENDÄR', cls: 'r3', weight: 3 },
 ];
+const noPacifist = () => !G.run.muts.pacifist;
+/** Legendäres gibt es erst ab Loop 4, im Boss-Rush sofort, im Schwarm ab Stufe 6. */
+const legendOK = () => G.loop >= 4 || G.run.mode === 'bossrush' || (G.run.mode === 'swarm' && G.level >= 6);
 
 const UPGRADES = [
   // ---- gewöhnlich ----
@@ -26,6 +30,12 @@ const UPGRADES = [
     icon: 'M5 5 L12 12 L5 19 M12 5 L19 12 L12 19', cond: () => !G.run.muts.nodash },
   { id: 'echopow', rarity: 0, max: 6, name: 'Echo-Verstärker', desc: 'Echos verursachen +15 % deines Schadens.',
     icon: 'M4 18 L10 4 L16 18 Z M10 18 L15 8 L20 18' },
+  { id: 'knock', rarity: 0, max: 3, name: 'Wuchtgeschosse', desc: '+8 % Schaden, Treffer stoßen Gegner zurück.',
+    icon: 'M3 12 H13 M9 7 L14 12 L9 17 M17 5 V19 M21 8 V16' },
+  { id: 'regen', rarity: 0, max: 3, name: 'Nanoreparatur', desc: 'Repariert alle 40 s einen Hüllenpunkt (je Stufe 10 s schneller).',
+    icon: 'M12 3 V21 M3 12 H21 M6 6 L18 18 M18 6 L6 18', cond: () => !G.run.muts.glass },
+  { id: 'novapow', rarity: 0, max: 3, name: 'Nova-Fokus', desc: 'Die Nova wird 25 % größer und stärker.',
+    icon: 'M12 2 V6 M12 18 V22 M2 12 H6 M18 12 H22 M12 8 A4 4 0 1 0 12 16 A4 4 0 1 0 12 8' },
   // ---- selten ----
   { id: 'multi', rarity: 1, max: 4, name: 'Mehrfachschuss', desc: '+1 Projektil pro Salve – auch für alle Echos.',
     icon: 'M4 12 L20 4 M4 12 H20 M4 12 L20 20' },
@@ -49,6 +59,16 @@ const UPGRADES = [
     icon: 'M4 20 L20 4 M14 4 H20 V10 M4 14 L10 20' },
   { id: 'dashdmg', rarity: 1, max: 3, name: 'Phasenriss', desc: 'Dein Dash schneidet durch Gegner und richtet schweren Schaden an.',
     icon: 'M2 12 H9 M15 12 H22 M9 5 L15 12 L9 19 M13 3 L11 21', cond: () => !G.run.muts.nodash },
+  { id: 'drone', rarity: 1, max: 3, name: 'Kampfdrohne', desc: '+1 Drohne umkreist dich und feuert selbstständig auf den nächsten Gegner.',
+    icon: 'M12 9 L15 12 L12 15 L9 12 Z M4 4 L9 9 M20 4 L15 9 M4 20 L9 15 M20 20 L15 15', cond: noPacifist },
+  { id: 'cryo', rarity: 1, max: 3, name: 'Kryo-Munition', desc: '15 % Chance, getroffene Gegner 2 s lang stark zu verlangsamen.',
+    icon: 'M12 2 V22 M3 7 L21 17 M3 17 L21 7 M9 3 L12 6 L15 3 M9 21 L12 18 L15 21' },
+  { id: 'rear', rarity: 1, max: 2, name: 'Heckgeschütz', desc: 'Jede Salve feuert auch nach hinten (Stufe 2: Dreifach-Fächer).',
+    icon: 'M12 4 V20 M7 9 L12 4 L17 9 M7 15 L12 20 L17 15' },
+  { id: 'mine', rarity: 1, max: 3, name: 'Zeitminen', desc: 'Dein Dash hinterlässt eine Mine, die kurz darauf explodiert.',
+    icon: 'M12 7 A5 5 0 1 0 12 17 A5 5 0 1 0 12 7 M12 2 V5 M12 19 V22 M2 12 H5 M19 12 H22', cond: () => !G.run.muts.nodash },
+  { id: 'scatter', rarity: 1, max: 3, name: 'Splitterkern', desc: 'Besiegte Gegner zerplatzen in 3 Projektile (+1 je Stufe).',
+    icon: 'M12 12 L4 4 M12 12 L20 4 M12 12 L4 20 M12 12 L20 20 M12 12 L12 2 M12 12 L12 22' },
   // ---- episch ----
   { id: 'chain', rarity: 2, max: 3, name: 'Kettenblitz', desc: 'Treffer springen als Blitz auf weitere Gegner über.',
     icon: 'M13 2 L5 13 H11 L9 22 L19 10 H13 Z' },
@@ -62,6 +82,19 @@ const UPGRADES = [
     icon: 'M6 3 H18 M6 21 H18 M7 3 C7 9 17 15 17 21 M17 3 C17 9 7 15 7 21' },
   { id: 'mirror', rarity: 2, max: 2, name: 'Spiegelung', desc: 'Dein neuestes Echo bekommt einen Spiegelzwilling auf der anderen Seite der Arena.',
     icon: 'M12 2 V22 M9 6 L3 12 L9 18 Z M15 6 L21 12 L15 18 Z' },
+  { id: 'hole', rarity: 2, max: 2, name: 'Ereignishorizont', desc: 'Die Nova hinterlässt ein Schwarzes Loch, das Gegner einsaugt und zermalmt.',
+    icon: 'M12 9 A3 3 0 1 0 12 15 A3 3 0 1 0 12 9 M12 3 C18 3 21 8 19 12 M12 21 C6 21 3 16 5 12 M3 9 C4 5 8 3 12 3 M21 15 C20 19 16 21 12 21' },
+  { id: 'laser', rarity: 2, max: 3, name: 'Phasenlaser', desc: 'Alle 2,5 s feuert dein Schiff einen Strahl, der alles in Zielrichtung durchschlägt.',
+    icon: 'M2 12 H22 M2 9 H8 M2 15 H8 M18 6 L22 12 L18 18', cond: noPacifist },
+  { id: 'combo', rarity: 2, max: 2, name: 'Kombo-Kern', desc: '+1 % Schaden je 10er-Multiplikator (bis +60 % je Stufe).',
+    icon: 'M4 20 L4 14 M9 20 L9 10 M14 20 L14 6 M19 20 L19 3' },
+  // ---- legendär ----
+  { id: 'rewind', rarity: 3, max: 1, name: 'Zeitumkehr', desc: 'Einmal pro Lauf: Ein tödlicher Treffer spult die Zeit zurück – volle Hülle, Gegner ringsum vergehen.',
+    icon: 'M4 12 A8 8 0 1 0 7 6 M4 3 V8 H9 M12 8 V12 L15 14', cond: legendOK },
+  { id: 'legion', rarity: 3, max: 1, name: 'Legion', desc: 'Deine Echos feuern doppelt so schnell.',
+    icon: 'M3 18 L7 8 L11 18 M9 18 L13 6 L17 18 M15 18 L19 10 L22 18', cond: legendOK },
+  { id: 'twin', rarity: 3, max: 1, name: 'Chronoklon', desc: 'Ein lebender Klon fliegt dir gespiegelt gegenüber und feuert jede deiner Salven mit.',
+    icon: 'M6 4 L10 12 L6 20 M18 4 L14 12 L18 20 M12 2 V22', cond: () => legendOK() && noPacifist() },
 ];
 
 const UPGRADE_BY_ID = {};
@@ -71,14 +104,17 @@ function upgradeIcon(u) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${u.icon}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-/** Zieht bis zu n verschiedene, noch nicht ausgereizte Aufwertungen (nach Seltenheit gewichtet). */
-function rollUpgrades(n) {
+/** Zieht bis zu n verschiedene, noch nicht ausgereizte Aufwertungen (nach Seltenheit gewichtet).
+    rare = true: die erste Karte ist mindestens episch (Belohnung nach Bossen). */
+function rollUpgrades(n, rare) {
   const pool = UPGRADES.filter((u) => (G.up[u.id] || 0) < u.max && (!u.cond || u.cond()));
   const out = [];
   while (out.length < n && pool.length) {
+    const force = rare && out.length === 0 && pool.some((u) => u.rarity >= 2);
     let total = 0;
     const w = pool.map((u) => {
-      const x = RARITY[u.rarity].weight + (u.rarity > 0 ? G.loop * 2.2 : 0);
+      let x = RARITY[u.rarity].weight + (u.rarity === 3 ? G.loop * 0.6 : u.rarity > 0 ? G.loop * 2.2 : 0);
+      if (force && u.rarity < 2) x = 0;
       total += x;
       return x;
     });
@@ -92,6 +128,7 @@ function rollUpgrades(n) {
 
 function applyUpgrade(u) {
   G.up[u.id] = (G.up[u.id] || 0) + 1;
+  if (u.rarity === 3) award('legend');
   recomputeStats();
   const p = G.player;
   if (u.id === 'hp') p.hp = Math.min(S.maxHp, p.hp + 1);

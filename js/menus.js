@@ -1,14 +1,27 @@
 'use strict';
 /* ====== NEON PARADOX — Menüs: Zentrale, Kampagne, Hangar, Werkstatt, Erfolge ====== */
-const menu = { mode: 'paradox', level: 0, muts: { paradox: [], swarm: [] } };
+const menu = { mode: 'paradox', level: 0, muts: { paradox: [], swarm: [] }, map: { paradox: 'grid', swarm: 'grid', bossrush: 'grid' } };
 const ENEMY_NAMES = {
   drifter: 'Drifter', weaver: 'Weber', dasher: 'Stürmer', splitter: 'Teiler', bomber: 'Bomber',
-  shooter: 'Schütze', lancer: 'Lanze', tank: 'Koloss', well: 'Singularität',
+  shooter: 'Schütze', lancer: 'Lanze', tank: 'Koloss', well: 'Singularität', phaser: 'Phasengeist', hive: 'Brutstock',
 };
-const ROMAN = ['I', 'II', 'III'];
+const ROMAN = ['I', 'II', 'III', 'IV', 'V'];
 
 function campaignGoal(lv) {
+  if (lv.kills) return `Vernichte ${lv.kills} Gegner`;
   return lv.boss ? `Überstehe ${lv.loops} Loops und besiege ${bossName(lv.boss)}` : `Überstehe ${lv.loops} Loops`;
+}
+function mapChips(mode) {
+  const sel = menu.map[mode] || 'grid';
+  let h = '<div class="chips">';
+  for (const id of MAP_ORDER) {
+    const un = isUnlocked('map', id);
+    h += `<button class="chip map${id === sel ? ' on' : ''}${un ? '' : ' locked'}" data-map="${id}" title="${un ? MAPS[id].desc : unlockText('map', id)}">` +
+      `<b>${MAPS[id].name}</b>${un ? '' : `<i>${unlockText('map', id)}</i>`}</button>`;
+  }
+  h += `<button class="chip map${sel === 'random' ? ' on' : ''}" data-map="random"><b>ZUFALL</b></button></div>`;
+  const d = sel === 'random' ? 'Jeder Lauf startet in einer zufälligen freigeschalteten Arena.' : MAPS[sel].desc;
+  return h + `<div class="mut-descs"><div>${d}</div></div>`;
 }
 
 function mutChip(id, on, fixed) {
@@ -49,7 +62,7 @@ function renderHub() {
   $('mode-list').innerHTML = MODE_ORDER.map((id) => {
     const m = MODES[id], locked = !isUnlocked('mode', id);
     return `<button class="mode-item${id === menu.mode ? ' sel' : ''}${locked ? ' locked' : ''}" data-mode="${id}" style="--c:${m.css}">` +
-      `<span class="mode-name">${m.name}</span><span class="mode-tag">${locked ? 'AB RANG ' + unlockRank('mode', id) : m.tag}</span>` +
+      `<span class="mode-name">${m.name}</span><span class="mode-tag">${locked ? unlockText('mode', id) : m.tag}</span>` +
       `<span class="mode-best">${locked ? '' : modeBest(id)}</span></button>`;
   }).join('');
   renderModeDetail();
@@ -62,8 +75,11 @@ function renderModeDetail() {
   if (id === 'daily') {
     const d = dailyInfo();
     h += `<div class="md-sub">HEUTE  ·  ${d.key}</div><div class="chips">${d.muts.map((x) => mutChip(x, true, true)).join('')}` +
-      `<span class="chip gift"><b>Startgeschenk</b><i>${UPGRADE_BY_ID[d.gift].name}</i></span></div>${mutDescs(d.muts)}`;
-  } else if (id === 'paradox' || id === 'swarm') {
+      `<span class="chip gift"><b>Startgeschenk</b><i>${UPGRADE_BY_ID[d.gift].name}</i></span>` +
+      `<span class="chip gift"><b>Arena</b><i>${MAPS[d.map].name}</i></span></div>${mutDescs(d.muts)}`;
+  }
+  if ((id === 'paradox' || id === 'swarm' || id === 'bossrush') && !locked) h += `<div class="md-sub">ARENA</div>${mapChips(id)}`;
+  if (id === 'paradox' || id === 'swarm') {
     if (isUnlocked('feature', 'mutators')) {
       const sel = menu.muts[id];
       let mul = 1;
@@ -75,7 +91,7 @@ function renderModeDetail() {
   const best = locked ? '' : modeBest(id);
   if (best) h += `<div class="md-best">${best}</div>`;
   h += locked
-    ? `<div class="md-lock">Wird mit Rang ${unlockRank('mode', id)} freigeschaltet</div>`
+    ? `<div class="md-lock">Wird freigeschaltet: ${unlockText('mode', id)}</div>`
     : `<button id="btn-mode-start" class="btn big">${id === 'campaign' ? 'SEKTORKARTE' : 'STARTEN'}</button>`;
   $('mode-detail').innerHTML = h;
 }
@@ -85,7 +101,9 @@ function hubStart() {
   if (!isUnlocked('mode', id)) return;
   if (id === 'campaign') { openCampaign(); return; }
   const free = (id === 'paradox' || id === 'swarm') && isUnlocked('feature', 'mutators');
-  startGame({ mode: id, muts: free ? menu.muts[id].slice() : [] });
+  let map = menu.map[id] || 'grid';
+  if (map !== 'random' && !isUnlocked('map', map)) map = 'grid';
+  startGame({ mode: id, muts: free ? menu.muts[id].slice() : [], map });
 }
 
 // ---------------------------------------------------------------- Kampagne
@@ -102,8 +120,9 @@ function openCampaign() {
 function renderCampaign() {
   $('camp-stars').textContent = `★ ${totalStars()} / ${CAMPAIGN.length * 3}`;
   let h = '';
-  for (let act = 1; act <= 3; act++) {
-    h += `<div class="act"><div class="act-name">AKT ${ROMAN[act - 1]}</div><div class="act-row">`;
+  const acts = CAMPAIGN[CAMPAIGN.length - 1].act;
+  for (let act = 1; act <= acts; act++) {
+    h += `<div class="act"><div class="act-name">AKT ${ROMAN[act - 1]}  ·  ${ACT_NAMES[act - 1]}</div><div class="act-row">`;
     CAMPAIGN.forEach((lv, i) => {
       if (lv.act !== act) return;
       const un = campaignUnlocked(i), st = P.campaign[lv.id] || 0;
@@ -121,7 +140,11 @@ function renderLevelDetail() {
   const i = menu.level, lv = CAMPAIGN[i], un = campaignUnlocked(i), st = P.campaign[lv.id] || 0, muts = lv.muts || [];
   let h = `<div class="kicker">SEKTOR ${i + 1}  ·  AKT ${ROMAN[lv.act - 1]}</div><h2>${lv.name.toUpperCase()}</h2><p class="md-desc">${lv.desc}</p>`;
   h += `<ul class="md-rules"><li><b>Ziel:</b> ${campaignGoal(lv)}</li>`;
+  h += `<li><b>Arena:</b> ${MAPS[lv.map || 'grid'].name}</li>`;
+  if (lv.anom) h += `<li><b>Anomalie:</b> ${ANOMALIES[lv.anom].name} – ${ANOMALIES[lv.anom].desc.split(' · ')[0]}</li>`;
   if (lv.pool) h += `<li><b>Gegner:</b> ${lv.pool.map((k) => ENEMY_NAMES[k] || k).join(', ')}</li>`;
+  const rw = UNLOCKS.find((u) => u.camp === lv.id);
+  if (rw) h += `<li><b>Belohnung:</b> ${rw.label}</li>`;
   if (lv.start) {
     h += `<li><b>Startausrüstung:</b> ${Object.keys(lv.start).map((id) => UPGRADE_BY_ID[id].name + (lv.start[id] > 1 ? ' ×' + lv.start[id] : '')).join(', ')}</li>`;
   }
@@ -145,7 +168,7 @@ function renderHangar() {
     return `<button class="ship-card${sel ? ' sel' : ''}${un ? '' : ' locked'}" data-ship="${id}" style="--c:${s.css}">` +
       `<span class="ship-art">${shipSvg(id)}</span><span class="ship-name">${s.name}</span><span class="ship-tag">${s.tag}</span>` +
       `<span class="ship-lines">${s.lines.map((l) => `<i>${l}</i>`).join('')}</span>` +
-      `<span class="ship-state">${sel ? 'AUSGEWÄHLT' : un ? 'AUSWÄHLEN' : 'AB RANG ' + unlockRank('ship', id)}</span></button>`;
+      `<span class="ship-state">${sel ? 'AUSGEWÄHLT' : un ? 'AUSWÄHLEN' : unlockText('ship', id)}</span></button>`;
   }).join('');
 }
 
@@ -187,7 +210,8 @@ function openAchievements() {
 // ---------------------------------------------------------------- Navigation
 function menuBack() {
   const s = ui.screen;
-  if (s === 'screen-hub') show('screen-title');
+  if (s === 'screen-settings') closeSettings();
+  else if (s === 'screen-hub') show('screen-title');
   else if (s === 'screen-campaign' || s === 'screen-hangar' || s === 'screen-workshop' || s === 'screen-ach') openHub();
 }
 function menuEnter() {
@@ -198,6 +222,7 @@ function menuEnter() {
 }
 
 function bindMenus() {
+  if (P.lastMaps && typeof P.lastMaps === 'object') Object.assign(menu.map, P.lastMaps);
   $('btn-start').addEventListener('click', openHub);
   $('btn-hub-back').addEventListener('click', menuBack);
   $('btn-hangar').addEventListener('click', openHangar);
@@ -214,6 +239,14 @@ function bindMenus() {
   });
   $('mode-detail').addEventListener('click', (ev) => {
     if (ev.target.closest('#btn-mode-start')) { hubStart(); return; }
+    const mc = ev.target.closest('.chip.map');
+    if (mc) {
+      if (mc.classList.contains('locked')) { Sfx.deny(); return; }
+      menu.map[menu.mode] = mc.dataset.map;
+      P.lastMaps = Object.assign({}, menu.map); saveProfile();
+      Sfx.pick(); renderModeDetail();
+      return;
+    }
     const chip = ev.target.closest('.chip');
     if (!chip || chip.classList.contains('fixed') || !chip.dataset.mut) return;
     const list = menu.muts[menu.mode], id = chip.dataset.mut, i = list.indexOf(id);
